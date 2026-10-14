@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hive Metastore to Unity Catalog Migration: Best-Practice Step-by-Step Guide</title>
+  <meta name="description" content="A phased, step-by-step best-practice guide for migrating from the Hive metastore to Databricks Unity Catalog: assessment, UCX, SYNC, DEEP CLONE, federation, permissions, compute, cutover.">
+  <link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+<div id="progress"><span></span></div>
+<div class="layout">
+
+<aside class="sidebar">
+  <div class="brand">Hive Metastore <b>&rarr;</b> Unity Catalog</div>
+  <div class="sub">Migration best-practice guide</div>
+  <input id="filter" type="search" placeholder="Filter steps (e.g. SYNC, mounts)" aria-label="Filter steps">
+  <nav aria-label="Steps">
+    <ol>
+      <li><a href="#step-0"><span class="n">00</span>Choose your path</a></li>
+      <li><a href="#step-1"><span class="n">01</span>Assess the estate</a></li>
+      <li><a href="#step-2"><span class="n">02</span>Design the UC target</a></li>
+      <li><a href="#step-3"><span class="n">03</span>Identity &amp; storage</a></li>
+      <li><a href="#step-4"><span class="n">04</span>Migrate tables &amp; views</a></li>
+      <li><a href="#step-5"><span class="n">05</span>Migrate permissions</a></li>
+      <li><a href="#step-6"><span class="n">06</span>Compute, jobs &amp; code</a></li>
+      <li><a href="#step-7"><span class="n">07</span>Validate &amp; parallel run</a></li>
+      <li><a href="#step-8"><span class="n">08</span>Cutover &amp; decommission</a></li>
+      <li><a href="#pitfalls"><span class="n">&#9888;</span>Pitfalls &amp; fixes</a></li>
+      <li><a href="#checklist"><span class="n">&#10003;</span>Master checklist</a></li>
+      <li><a href="#sources"><span class="n">&#8599;</span>Sources &amp; gaps</a></li>
+    </ol>
+  </nav>
+  <div class="side-foot">
+    <button class="btn" id="theme" type="button">Theme</button>
+    <button class="btn" onclick="print()" type="button">Print</button>
+  </div>
+</aside>
+
+<main>
+<header class="hero">
+  <div class="eyebrow">Databricks &middot; Governance</div>
+  <h1>Hive Metastore to Unity Catalog: a step-by-step migration guide</h1>
+  <p>Nine phases from inventory to HMS shutdown. Each step lists the action, the command, the gate to pass, and the failure modes seen in practice.</p>
+  <div class="pills">
+    <span class="pill">UCX</span><span class="pill">SYNC</span><span class="pill">DEEP CLONE</span>
+    <span class="pill">HMS federation</span><span class="pill">Volumes</span><span class="pill">System tables</span>
+  </div>
+</header>
+
+<!-- STEP 0 -->
+<section class="step" id="step-0">
+  <div class="step-head"><div class="step-no">00</div><h2>Choose your migration path</h2></div>
+  <p class="lede">Decide the approach before touching data. The path sets how much data moves and how long the legacy and new worlds coexist.</p>
+
+  <div class="grid">
+    <div class="card">
+      <span class="tag rec">Recommended</span>
+      <h3>Federate, then upgrade in place</h3>
+      <p>Expose the Hive metastore as a <strong>foreign catalog</strong> in Unity Catalog, then upgrade the foreign tables in place. No data movement; history, permissions and views are preserved.</p>
+    </div>
+    <div class="card">
+      <span class="tag alt">Alternative</span>
+      <h3>Direct "hard" migration</h3>
+      <p><code>SYNC</code> for external tables, <code>CLONE</code> or <code>CTAS</code> for managed tables. Use UCX workflows rather than hand-written scripts for large estates.</p>
+    </div>
+    <div class="card">
+      <span class="tag alt">Bulk tooling</span>
+      <h3>UCX (Databricks Labs)</h3>
+      <p>Assessment plus workflows for identities, permissions, storage locations and tables, with code migration and data reconciliation. UCX is a Labs project and is not directly supported by Databricks.</p>
+    </div>
+  </div>
+
+  <div class="flow" aria-label="Phase flow">
+    <span class="node on">Assess</span><span class="arrow">&rarr;</span><span class="node">Plan</span><span class="arrow">&rarr;</span>
+    <span class="node">Migrate</span><span class="arrow">&rarr;</span><span class="node">Validate</span><span class="arrow">&rarr;</span><span class="node">Decommission</span>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">Which method fits this table?</h3>
+    <div class="chooser">
+      <div><label for="c-type">Table type</label>
+        <select id="c-type"><option value="external">External</option><option value="managed">Managed</option><option value="view">View</option></select></div>
+      <div><label for="c-fmt">Format</label>
+        <select id="c-fmt"><option value="delta">Delta / Parquet</option><option value="serde">Hive SerDe / other</option></select></div>
+      <div><label for="c-loc">Storage location</label>
+        <select id="c-loc"><option value="any">Cloud storage (external location)</option><option value="dbfsroot">Workspace DBFS root</option><option value="external-storage">Outside workspace storage</option></select></div>
+    </div>
+    <div id="verdict" role="status" aria-live="polite"></div>
+  </div>
+</section>
+
+<!-- STEP 1 -->
+<section class="step" id="step-1">
+  <div class="step-head"><div class="step-no">01</div><h2>Assess the estate</h2></div>
+  <p class="lede">Inventory first. Migrate only what is alive.</p>
+
+  <h3>1.1 Install UCX and run the assessment</h3>
+  <pre data-lang="bash"><code>databricks labs install ucx
+databricks labs ucx ensure-assessment-run</code></pre>
+  <ul>
+    <li>Prerequisites: Databricks CLI v0.213+, Python 3.10+, account admin and workspace admin roles. UCX cannot be installed as a service principal.</li>
+    <li>The installer asks for the workspace CLI profile (the config file must also hold a profile for the parent account), an inventory database name (default <code>ucx</code>), a SQL warehouse, and which workspace-local groups to migrate.</li>
+    <li>Results land in Delta tables in the inventory database and populate the assessment dashboard.</li>
+  </ul>
+
+  <h3>1.2 Inventory what to move</h3>
+  <ul>
+    <li>Groups, external locations and <strong>mount points</strong>, tables and views, workflows, notebooks.</li>
+    <li>Use the UCX readiness score as the baseline for tracking progress.</li>
+  </ul>
+
+  <h3>1.3 De-scope dead weight with system tables and lineage</h3>
+  <p>Query usage and lineage to find inactive jobs and unused tables. One public case study de-scoped roughly 40% of jobs this way, which shrank the migration and the validation burden.</p>
+  <pre data-lang="sql"><code>-- Tables with no reads in the last 90 days (adapt to your system-table access)
+SELECT source_table_full_name, MAX(event_time) AS last_read
+FROM system.access.table_lineage
+WHERE source_table_full_name LIKE 'hive_metastore.%'
+GROUP BY 1
+HAVING MAX(event_time) &lt; current_date() - INTERVAL 90 DAYS;</code></pre>
+
+  <div class="callout tip"><strong>Gate</strong>Signed-off inventory, a de-scoped list of tables and jobs, and an owner named for every in-scope schema.</div>
+</section>
+
+<!-- STEP 2 -->
+<section class="step" id="step-2">
+  <div class="step-head"><div class="step-no">02</div><h2>Design the Unity Catalog target</h2></div>
+  <p class="lede">Hive has two levels (<code>schema.table</code>). Unity Catalog has three (<code>catalog.schema.table</code>). The mapping is the main design decision.</p>
+
+  <ul class="check">
+    <li><input type="checkbox"><span>Metastore exists, is attached to the workspace, and the regional layout is agreed.</span></li>
+    <li><input type="checkbox"><span>Catalog strategy chosen (by environment, business domain, or both) and documented.</span></li>
+    <li><input type="checkbox"><span>Schema mapping reviewed, e.g. <code>hive_metastore.sales</code> to <code>prod.sales</code>.</span></li>
+    <li><input type="checkbox"><span>Group ownership chosen for catalogs and schemas (not individual users).</span></li>
+  </ul>
+
+  <h3>Generate and review the table mapping</h3>
+  <pre data-lang="bash"><code>databricks labs ucx create-table-mapping
+# Edit the generated CSV: each Hive table -> target catalog, schema, table
+databricks labs ucx create-catalogs-schemas   # optional: create the targets</code></pre>
+  <div class="callout"><strong>Tip</strong>Treat the mapping CSV as a reviewed, version-controlled artifact. It drives every later table step.</div>
+</section>
+
+<!-- STEP 3 -->
+<section class="step" id="step-3">
+  <div class="step-head"><div class="step-no">03</div><h2>Prepare identity and storage</h2></div>
+  <p class="lede">Unity Catalog governs by account-level groups and external locations. Both must exist before tables can move.</p>
+
+  <h3>3.1 Identity: workspace groups to account groups</h3>
+  <ul>
+    <li>Grant access to <strong>account-level</strong> users and groups, never to workspace-local groups.</li>
+    <li>UCX provides a group migration workflow that upgrades membership to account-level groups and migrates permissions.</li>
+  </ul>
+
+  <h3>3.2 Storage: credentials and external locations</h3>
+  <pre data-lang="bash"><code>databricks labs ucx create-uber-principal   # read-only SP over all table storage; used by workflow compute
+databricks labs ucx principal-prefix-access # optional: discover storage accounts and credentials in use
+databricks labs ucx migrate-credentials     # optional: create UC storage credentials
+# optional: migrate locations -> creates UC external locations from the assessment</code></pre>
+  <div class="callout warn"><strong>Clean up</strong>Deprovision the uber principal when the upgrade is finished.</div>
+
+  <h3>3.3 Mounts and DBFS files to external locations and volumes</h3>
+  <ol>
+    <li>Create an external location for the cloud path the mount points to.</li>
+    <li>Create an external volume on a subpath.</li>
+    <li>Copy files that live in DBFS root (files already in mounted cloud storage are reached through the location).</li>
+    <li>Verify reads, then unmount.</li>
+  </ol>
+  <pre data-lang="sql"><code>USE CATALOG main;
+USE SCHEMA data;
+CREATE EXTERNAL VOLUME IF NOT EXISTS raw_files
+  LOCATION 'my_data_loc/csv-files/';</code></pre>
+  <pre data-lang="python"><code>dbutils.fs.cp("dbfs:/FileStore/tables/data.csv",
+              "/Volumes/main/data/raw_files/data.csv")
+dbutils.fs.ls("/Volumes/main/data/raw_files/")   # verify
+dbutils.fs.unmount("/mnt/oldpath")               # after jobs are repointed</code></pre>
+  <ul>
+    <li>Use workspace files, not volumes, for code, libraries and small files in DBFS root.</li>
+    <li>Jobs that read or write via mount paths must switch to <code>/Volumes/...</code> paths.</li>
+    <li>For large copies use the CLI <code>fs cp</code> or a distributed Spark copy.</li>
+  </ul>
+  <div class="callout"><strong>Gate</strong>Every external table path is covered by an external location; account groups exist and are populated.</div>
+</section>
+
+<!-- STEP 4 -->
+<section class="step" id="step-4">
+  <div class="step-head"><div class="step-no">04</div><h2>Migrate tables and views</h2></div>
+  <p class="lede">Pick the method per table, run it, and re-run as sources change.</p>
+
+  <div class="table-wrap"><table>
+    <thead><tr><th>Source table</th><th>Method</th><th>Result in UC</th></tr></thead>
+    <tbody>
+      <tr><td>External, Delta/Parquet</td><td><code>SYNC</code> or upgrade wizard</td><td>External table (metadata only)</td></tr>
+      <tr><td>External, Hive SerDe</td><td><code>CONVERT TO DELTA</code> then <code>SYNC</code></td><td>External table</td></tr>
+      <tr><td>Managed, DBFS root, Delta/Parquet</td><td><code>DEEP CLONE</code> (CTAS if prerequisites fail)</td><td>Managed table</td></tr>
+      <tr><td>Managed, outside workspace storage</td><td><code>SYNC</code></td><td>External table</td></tr>
+      <tr><td>Foreign catalog (federated)</td><td><code>SET MANAGED</code> / <code>SET EXTERNAL</code></td><td>Managed or external table</td></tr>
+      <tr><td>Views</td><td>Recreate manually</td><td>View on three-level names</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>4.1 External tables with SYNC</h3>
+  <p><code>SYNC</code> is metadata-only, works per table or per schema, writes bookkeeping properties back to the Hive table, and can be re-run to pick up source changes, which supports a gradual hybrid transition. The upgrade wizard wraps SYNC in Catalog Explorer (external tables only, can be scheduled) and needs a storage credential, an external location and <code>CREATE EXTERNAL TABLE</code>.</p>
+  <pre data-lang="sql"><code>-- Dry run first
+SYNC TABLE main.sales.orders FROM hive_metastore.sales.orders DRY RUN;
+SYNC SCHEMA main.sales FROM hive_metastore.sales;</code></pre>
+
+  <h3>4.2 Hive SerDe tables</h3>
+  <p>SerDe tables fail with <code>UPGRADE_NOT_SUPPORTED.HIVE_SERDE</code>. Convert first:</p>
+  <pre data-lang="sql"><code>CONVERT TO DELTA hive_metastore.sales.orders;
+SYNC TABLE main.sales.orders FROM hive_metastore.sales.orders;</code></pre>
+
+  <h3>4.3 Managed tables with DEEP CLONE</h3>
+  <p>Clone is almost always preferred over CTAS. It needs managed Delta tables and must be a <strong>deep</strong> clone from Hive to UC.</p>
+  <pre data-lang="sql"><code>CREATE OR REPLACE TABLE main.sales.customers
+DEEP CLONE hive_metastore.sales.customers;</code></pre>
+  <div class="callout warn"><strong>Shallow clones</strong>Do not drop the old Hive table if a shallow clone was used.</div>
+
+  <h3>4.4 Federated route: upgrade foreign tables in place</h3>
+  <ol>
+    <li>Create a connection to the Hive metastore (for the legacy internal metastore, federation handles authorization; for an external one you need host, port, database, credentials and <code>CREATE CONNECTION</code>).</li>
+    <li>Create a storage credential and external location for the registered table paths.</li>
+    <li>Create a foreign catalog on the connection (the docs call the one mirroring the internal metastore <code>hms_in_uc</code>).</li>
+    <li>Grant privileges on the foreign catalog (row and column filters are available).</li>
+    <li>Point workloads at it with <code>USE CATALOG hms_in_uc</code> or by setting it as the compute default catalog.</li>
+  </ol>
+  <pre data-lang="sql"><code>ALTER TABLE hms_in_uc.sales.orders SET MANAGED;   -- to UC managed
+ALTER TABLE hms_in_uc.sales.orders SET EXTERNAL;  -- to UC external
+ALTER CATALOG hms_in_uc DROP CONNECTION;          -- after migration</code></pre>
+  <div class="callout warn"><strong>Verify syntax</strong>The <code>SET MANAGED</code> / <code>SET EXTERNAL</code> statements above come from the migration docs; confirm the exact current syntax and options for your cloud before running them.</div>
+  <p>Access through an external Hive metastore (or AWS Glue) is read-only; the internal workspace metastore is read-write.</p>
+
+  <h3>4.5 Views</h3>
+  <p>Recreate views after <em>all</em> referenced tables are migrated, rewriting references to three-level names.</p>
+
+  <h3>4.6 Run the UCX table migration workflow</h3>
+  <p>Run from the README notebook or <strong>Jobs &amp; Pipelines</strong> after the preparatory tasks in Step 3. External Hive tables are upgraded with <code>SYNC</code>; managed DBFS-root tables with <code>DEEP CLONE</code>. Hive managed tables must be Delta or Parquet. Expect to run it more than once.</p>
+  <div class="callout"><strong>Gate</strong>Every in-scope table appears in UC with row counts matching the source (see Step 7).</div>
+</section>
+
+<!-- STEP 5 -->
+<section class="step" id="step-5">
+  <div class="step-head"><div class="step-no">05</div><h2>Migrate permissions</h2></div>
+  <p class="lede">Re-express Hive ACLs as Unity Catalog grants for account groups.</p>
+  <ol>
+    <li>Extract Hive ACLs and group memberships.</li>
+    <li>Map each to an account-level group.</li>
+    <li>Apply grants through automation (UCX or scripts), not by hand.</li>
+    <li>Set table owners; the upgrade wizard recommends group ownership.</li>
+    <li>Validate access parity: sample users from each group must see the same data as before.</li>
+  </ol>
+  <pre data-lang="sql"><code>GRANT USE CATALOG ON CATALOG main TO `analysts`;
+GRANT USE SCHEMA, SELECT ON SCHEMA main.sales TO `analysts`;
+SHOW GRANTS ON TABLE main.sales.orders;</code></pre>
+  <div class="callout"><strong>Gate</strong>Access-parity test passes for a representative user per group.</div>
+</section>
+
+<!-- STEP 6 -->
+<section class="step" id="step-6">
+  <div class="step-head"><div class="step-no">06</div><h2>Migrate compute, jobs and code</h2></div>
+  <p class="lede">Tables moving is half the work. Clusters, init scripts and code must be Unity Catalog compatible.</p>
+
+  <div class="table-wrap"><table>
+    <thead><tr><th>Area</th><th>Requirement</th></tr></thead>
+    <tbody>
+      <tr><td>Access mode</td><td>UC-capable compute means SQL warehouses, or compute in standard or dedicated access mode. Standard mode enables legacy table ACLs by default, so grant Hive privileges or use dedicated mode.</td></tr>
+      <tr><td>Job clusters</td><td>Below DBR 11.3: move to 11.3+ with dedicated or standard mode.</td></tr>
+      <tr><td>Pipelines</td><td>Lakeflow pipelines need DBR 13.1+.</td></tr>
+      <tr><td>Scala</td><td>Below DBR 13.3 runs on dedicated compute; standard mode is supported on 13.3+. Scala UDFs: standard mode on 14.2+.</td></tr>
+      <tr><td>ML Runtime</td><td>MLR tasks run on dedicated compute.</td></tr>
+      <tr><td>Init scripts</td><td>DBFS-based cluster-scoped init scripts stopped working after 1 Dec 2023. Move to UC volumes (DBR 13.3+) or workspace files. Scripts on standard clusters must be in the metastore artifact allowlist (<code>MANAGE_ALLOWLIST</code>).</td></tr>
+      <tr><td>Instance profiles</td><td>Jobs using them for non-storage cloud services (e.g. streaming services) should move to UC service credentials. Storage access goes through external locations.</td></tr>
+      <tr><td>Libraries</td><td>Custom libraries must use three-level names and avoid mount points.</td></tr>
+      <tr><td>RDD / dbutils</td><td>RDD API code needs refactoring for UC compute; some internal <code>dbutils</code> calls are unsupported. In shared mode, read notebook context via <code>get_context()</code> from <code>dbruntime.databricks_repl_context</code>.</td></tr>
+      <tr><td>Job principals</td><td>Job service principals need grants on the volumes, tables and external locations they use.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Code changes</h3>
+  <pre data-lang="python"><code># Before
+df = spark.table("sales.orders")
+df = spark.read.parquet("/mnt/raw/orders")
+
+# After
+df = spark.table("main.sales.orders")
+df = spark.read.parquet("/Volumes/main/sales/raw/orders")</code></pre>
+  <div class="callout warn"><strong>Init-script migration notebook</strong>Run it as a workspace admin on DBR 13.3+, ideally on a bare cluster, with the dry-run mode first. Confirm cluster owners still exist, or restarts can fail with <code>PERMISSION_DENIED</code>.</div>
+  <div class="callout"><strong>Gate</strong>Each job runs green on UC compute against UC tables, with no <code>hive_metastore</code> or <code>/mnt</code> references left in code.</div>
+</section>
+
+<!-- STEP 7 -->
+<section class="step" id="step-7">
+  <div class="step-head"><div class="step-no">07</div><h2>Validate and run in parallel</h2></div>
+  <p class="lede">Prove equivalence before anyone switches over.</p>
+  <ul class="check">
+    <li><input type="checkbox"><span>Row counts and checksums match for every migrated table.</span></li>
+    <li><input type="checkbox"><span>Schemas, partitioning and table properties match.</span></li>
+    <li><input type="checkbox"><span>Old and new pipelines run in parallel; historical and incremental loads reconcile.</span></li>
+    <li><input type="checkbox"><span>Dashboards and BI connections repointed and compared.</span></li>
+    <li><input type="checkbox"><span>Access-parity tests pass per group.</span></li>
+  </ul>
+  <pre data-lang="sql"><code>SELECT 'hive' AS src, COUNT(*) AS n FROM hive_metastore.sales.orders
+UNION ALL
+SELECT 'uc',   COUNT(*)        FROM main.sales.orders;
+
+-- Cheap content check
+SELECT * FROM (
+  SELECT * FROM hive_metastore.sales.orders EXCEPT SELECT * FROM main.sales.orders
+);</code></pre>
+</section>
+
+<!-- STEP 8 -->
+<section class="step" id="step-8">
+  <div class="step-head"><div class="step-no">08</div><h2>Cutover and decommission</h2></div>
+  <p class="lede">Retire the legacy path deliberately, with a way to see who still uses it.</p>
+  <ol>
+    <li><strong>Deprecation notice.</strong> Optionally add a comment on the old Hive table; queries then show a warning.</li>
+    <li><strong>Watch fallback use.</strong> Fallback mode on external locations lets unmigrated workloads keep working during federation. Check the audit log, then turn it off.</li>
+    <li><strong>Make UC the default.</strong> Set the federated (or target) catalog as the workspace default catalog.</li>
+    <li><strong>Block bypass.</strong> Use compute policies and <em>Enforce user isolation</em> to block clusters that skip table access control.</li>
+    <li><strong>Disable direct HMS access.</strong> Compute connects to the Hive metastore by default until you disable it workspace-wide or per cluster with a Spark configuration.</li>
+    <li><strong>Drop old tables.</strong> First revoke access and re-run dependents to surface hidden dependencies.</li>
+  </ol>
+  <pre data-lang="sql"><code>-- Was fallback used in the last 30 days?
+SELECT event_time, user_identity, action_name, request_params, response, identity_metadata
+FROM system.access.audit
+WHERE request_params.fallback_enabled = 'true'
+  AND request_params.path LIKE '%some-path%'
+  AND event_time &gt;= current_date() - INTERVAL 30 DAYS
+LIMIT 10;</code></pre>
+  <div class="callout danger"><strong>No clean rollback documented</strong>The reviewed sources give no rollback procedure. Keep the Hive tables and data until the parallel run is signed off, and snapshot permissions before revoking.</div>
+  <div class="callout tip"><strong>Note</strong>For workspaces with no Hive metastore activity, Databricks may disable HMS access automatically (documented as starting July 2026). Confirm current behaviour for your workspace.</div>
+</section>
+
+<!-- PITFALLS -->
+<section class="step" id="pitfalls">
+  <div class="step-head"><div class="step-no">&#9888;</div><h2>Pitfalls and fixes</h2></div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Symptom</th><th>Cause</th><th>Fix</th></tr></thead>
+    <tbody>
+      <tr><td><code>UPGRADE_NOT_SUPPORTED.HIVE_SERDE</code></td><td>SerDe table, not Delta</td><td><code>CONVERT TO DELTA</code>, then <code>SYNC</code></td></tr>
+      <tr><td>SYNC skips a managed table</td><td>Managed table in workspace DBFS root</td><td><code>DEEP CLONE</code></td></tr>
+      <tr><td>Init script fails on shared cluster</td><td>Script not in artifact allowlist</td><td>Add to allowlist (<code>MANAGE_ALLOWLIST</code>)</td></tr>
+      <tr><td><code>PERMISSION_DENIED</code> on cluster restart</td><td>Cluster owner deleted</td><td>Reassign owner before migrating scripts</td></tr>
+      <tr><td>Job fails reading <code>/mnt/...</code></td><td>Mount path on UC compute</td><td>Use <code>/Volumes/...</code></td></tr>
+      <tr><td>Access denied after cutover</td><td>Grants missing for job service principal</td><td>Grant on volumes, tables, locations</td></tr>
+      <tr><td>Old table dropped, clone breaks</td><td>Shallow clone</td><td>Use deep clone; do not drop sources of shallow clones</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<!-- CHECKLIST -->
+<section class="step" id="checklist">
+  <div class="step-head"><div class="step-no">&#10003;</div><h2>Master checklist</h2></div>
+  <p class="lede">Progress saves in this browser. <span id="tally"></span></p>
+  <ul class="check">
+    <li><input type="checkbox"><span>UCX installed; assessment run; readiness score recorded.</span></li>
+    <li><input type="checkbox"><span>Inactive jobs and tables de-scoped using system tables.</span></li>
+    <li><input type="checkbox"><span>Table mapping CSV reviewed and committed.</span></li>
+    <li><input type="checkbox"><span>Account groups created; workspace groups migrated.</span></li>
+    <li><input type="checkbox"><span>Storage credentials and external locations created.</span></li>
+    <li><input type="checkbox"><span>Mounts replaced by external locations and volumes.</span></li>
+    <li><input type="checkbox"><span>External tables synced; SerDe tables converted.</span></li>
+    <li><input type="checkbox"><span>Managed tables cloned; views recreated.</span></li>
+    <li><input type="checkbox"><span>Permissions migrated; access parity validated.</span></li>
+    <li><input type="checkbox"><span>Clusters, init scripts, libraries and jobs UC-compatible.</span></li>
+    <li><input type="checkbox"><span>Parallel run reconciled; sign-off recorded.</span></li>
+    <li><input type="checkbox"><span>Fallback mode off; default catalog set; direct HMS access disabled.</span></li>
+    <li><input type="checkbox"><span>Legacy tables and uber principal retired.</span></li>
+  </ul>
+  <button class="btn" id="reset" type="button">Reset checklist</button>
+</section>
+
+<!-- SOURCES -->
+<section class="step" id="sources">
+  <div class="step-head"><div class="step-no">&#8599;</div><h2>Sources and known gaps</h2></div>
+  <ul class="sources">
+    <li><a href="https://docs.databricks.com/aws/en/data-governance/unity-catalog/migrate">Hive to Unity Catalog migration options</a> (Databricks docs)</li>
+    <li><a href="https://docs.databricks.com/aws/en/data-governance/unity-catalog/upgrade">Upgrade tables in your Hive metastore to Unity Catalog</a> (Databricks docs)</li>
+    <li><a href="https://docs.databricks.com/aws/en/data-governance/unity-catalog/ucx">Use the UCX utilities to upgrade your workspace</a> (Databricks docs)</li>
+    <li><a href="https://docs.databricks.com/aws/en/query-federation/hms-federation-concepts">Hive metastore federation concepts</a> (Databricks docs)</li>
+    <li><a href="https://docs.databricks.com/aws/en/dbfs/disable-dbfs-root-mounts">Alternatives to DBFS root and mounts</a> (Databricks docs)</li>
+    <li><a href="https://www.databricks.com/blog/enterprise-scale-governance-migrating-hive-metastore-unity-catalog">Enterprise-scale governance: migrating HMS to Unity Catalog</a> (Databricks blog)</li>
+    <li><a href="https://www.databricks.com/blog/automating-unity-catalog-upgrade-workflows-ucx">Automating Unity Catalog upgrade workflows with UCX</a> (Databricks blog)</li>
+    <li><a href="https://www.databricks.com/blog/7-elevens-journey-unity-catalog-success">A public Unity Catalog migration case study using UCX and system tables</a> (Databricks blog)</li>
+    <li><a href="https://kb.databricks.com/en_US/data/sync-fails-with-%5Bupgrade_not_supportedhive_serde%5D-table-is-not-eligible-for-upgrade-from-hive-metastore-to-unity-catalog">SYNC fails with UPGRADE_NOT_SUPPORTED.HIVE_SERDE</a> (Knowledge base)</li>
+    <li><a href="https://kb.databricks.com/en_US/unity-catalog/cluster-scoped-init-script-to-unity-catalog-volume-migration-notebook">Cluster-scoped init script migration notebook</a> (Knowledge base)</li>
+    <li><a href="https://community.databricks.com/t5/technical-blog/from-hms-to-unity-catalog-a-self-service-migration-playbook/ba-p/155116">From HMS to Unity Catalog: a self-service migration playbook</a> (Databricks Community)</li>
+    <li><a href="https://docs.databricks.com/aws/en/data-governance/unity-catalog/upgrade/">Upgrade a Databricks workspace to Unity Catalog</a> (Databricks docs)</li>
+    <li><a href="https://github.com/databrickslabs/ucx">UCX on GitHub</a> (Databricks Labs)</li>
+  </ul>
+  <details>
+    <summary>Not yet covered (verify against current docs)</summary>
+    <ul>
+      <li>UCX <code>migrate-tables</code>, group-migration validation, local code migration, and status commands.</li>
+      <li>Exact <code>SET MANAGED</code> / <code>SET EXTERNAL</code> options.</li>
+      <li>Rollback procedure.</li>
+      <li>Exactly which RDD operations and <code>dbutils</code> commands are unsupported on UC compute.</li>
+      <li>Instance profile to storage credential mapping for storage access.</li>
+    </ul>
+  </details>
+  <footer>Licensed under Apache 2.0. Commands reflect the Databricks documentation reviewed in October 2026; features and limits change, so check the linked docs before running anything in production.</footer>
+</section>
+
+</main>
+</div>
+<script src="assets/js/app.js"></script>
+</body>
+</html>
