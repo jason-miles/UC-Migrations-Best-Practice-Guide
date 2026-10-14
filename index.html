@@ -152,6 +152,8 @@ databricks labs ucx create-catalogs-schemas   # optional: create the targets</co
     <li>UCX provides a group migration workflow that upgrades membership to account-level groups and migrates permissions.</li>
   </ul>
 
+  <p>The group migration workflow depends on the assessment output, also removes unnecessary workspace groups and permissions, and can be run multiple times until every group and permission is handled. Run it from the UCX-generated README notebook. Command-level detail is in the <a href="https://databrickslabs.github.io/ucx/docs/reference/workflows/#group-migration-workflow">UCX group migration reference</a>.</p>
+
   <h3>3.2 Storage: credentials and external locations</h3>
   <pre data-lang="bash"><code>databricks labs ucx create-uber-principal   # read-only SP over all table storage; used by workflow compute
 databricks labs ucx principal-prefix-access # optional: discover storage accounts and credentials in use
@@ -194,7 +196,7 @@ dbutils.fs.unmount("/mnt/oldpath")               # after jobs are repointed</cod
       <tr><td>External, Hive SerDe</td><td><code>CONVERT TO DELTA</code> then <code>SYNC</code></td><td>External table</td></tr>
       <tr><td>Managed, DBFS root, Delta/Parquet</td><td><code>DEEP CLONE</code> (CTAS if prerequisites fail)</td><td>Managed table</td></tr>
       <tr><td>Managed, outside workspace storage</td><td><code>SYNC</code></td><td>External table</td></tr>
-      <tr><td>Foreign catalog (federated)</td><td><code>SET MANAGED</code> / <code>SET EXTERNAL</code></td><td>Managed or external table</td></tr>
+      <tr><td>Foreign catalog (federated)</td><td><code>SET MANAGED MOVE</code> / <code>SET EXTERNAL</code></td><td>Managed or external table</td></tr>
       <tr><td>Views</td><td>Recreate manually</td><td>View on three-level names</td></tr>
     </tbody>
   </table></div>
@@ -224,10 +226,20 @@ DEEP CLONE hive_metastore.sales.customers;</code></pre>
     <li>Grant privileges on the foreign catalog (row and column filters are available).</li>
     <li>Point workloads at it with <code>USE CATALOG hms_in_uc</code> or by setting it as the compute default catalog.</li>
   </ol>
-  <pre data-lang="sql"><code>ALTER TABLE hms_in_uc.sales.orders SET MANAGED;   -- to UC managed
-ALTER TABLE hms_in_uc.sales.orders SET EXTERNAL;  -- to UC external
-ALTER CATALOG hms_in_uc DROP CONNECTION;          -- after migration</code></pre>
-  <div class="callout warn"><strong>Verify syntax</strong>The <code>SET MANAGED</code> / <code>SET EXTERNAL</code> statements above come from the migration docs; confirm the exact current syntax and options for your cloud before running them.</div>
+  <pre data-lang="sql"><code>ALTER TABLE hms_in_uc.sales.orders SET MANAGED MOVE;  -- to UC managed; disables the source table (recommended)
+ALTER TABLE hms_in_uc.sales.orders SET MANAGED COPY;  -- to UC managed; source stays accessible
+ALTER TABLE hms_in_uc.sales.orders SET EXTERNAL;      -- to UC external (supports DRY RUN)
+ALTER CATALOG hms_in_uc DROP CONNECTION;              -- after migration</code></pre>
+  <ul>
+    <li><code>SET MANAGED</code> needs <strong>DBR 17.3 LTS or above</strong> and a federated Hive metastore. The feature was announced as Public Preview in November 2025.</li>
+    <li>Managed tables unlock predictive optimization (automatic compaction, clustering, vacuuming). The in-place upgrade preserves history, configuration, permissions and views.</li>
+    <li><code>DRY RUN</code> is documented for <code>SET EXTERNAL</code> only. It is not documented for <code>SET MANAGED</code>.</li>
+    <li>To convert a whole schema or catalog, iterate over the tables, or use the Labs project <code>discoverx</code>:</li>
+  </ul>
+  <pre data-lang="python"><code>(dx.from_tables("hms_in_uc.*.*")
+   .with_sql("ALTER TABLE {full_table_name} SET MANAGED MOVE;")
+   .apply())</code></pre>
+  <div class="callout warn"><strong>Preview feature</strong>Privilege requirements and unsupported table types for <code>SET MANAGED</code> are not covered in the sources reviewed. Read the "Foreign tables using SQL" section of the Databricks convert-to-managed docs before running it, and rehearse with <code>COPY</code> first if rollback matters.</div>
   <p>Access through an external Hive metastore (or AWS Glue) is read-only; the internal workspace metastore is read-write.</p>
 
   <h3>4.5 Views</h3>
@@ -235,6 +247,7 @@ ALTER CATALOG hms_in_uc DROP CONNECTION;          -- after migration</code></pre
 
   <h3>4.6 Run the UCX table migration workflow</h3>
   <p>Run from the README notebook or <strong>Jobs &amp; Pipelines</strong> after the preparatory tasks in Step 3. External Hive tables are upgraded with <code>SYNC</code>; managed DBFS-root tables with <code>DEEP CLONE</code>. Hive managed tables must be Delta or Parquet. Expect to run it more than once.</p>
+  <p>Each task writes its output to Delta tables in the inventory database chosen at install time, so query those tables to track which tables have migrated. Rerun the workflow until all are upgraded. Further commands and options are in the UCX <a href="https://databrickslabs.github.io/ucx/docs/reference/commands/#table-migration-commands">table migration commands</a> and <a href="https://databrickslabs.github.io/ucx/docs/reference/workflows/#table-migration-workflows">table migration workflows</a> references. UCX code migration is documented as still under development, so scan and fix code with the checks in Step 6.</p>
   <div class="callout"><strong>Gate</strong>Every in-scope table appears in UC with row counts matching the source (see Step 7).</div>
 </section>
 
@@ -271,7 +284,9 @@ SHOW GRANTS ON TABLE main.sales.orders;</code></pre>
       <tr><td>Init scripts</td><td>DBFS-based cluster-scoped init scripts stopped working after 1 Dec 2023. Move to UC volumes (DBR 13.3+) or workspace files. Scripts on standard clusters must be in the metastore artifact allowlist (<code>MANAGE_ALLOWLIST</code>).</td></tr>
       <tr><td>Instance profiles</td><td>Jobs using them for non-storage cloud services (e.g. streaming services) should move to UC service credentials. Storage access goes through external locations.</td></tr>
       <tr><td>Libraries</td><td>Custom libraries must use three-level names and avoid mount points.</td></tr>
-      <tr><td>RDD / dbutils</td><td>RDD API code needs refactoring for UC compute; some internal <code>dbutils</code> calls are unsupported. In shared mode, read notebook context via <code>get_context()</code> from <code>dbruntime.databricks_repl_context</code>.</td></tr>
+      <tr><td>RDD / <code>sc</code></td><td>Standard mode uses Spark Connect, so RDDs, <code>sc</code>, <code>sqlContext</code> and <code>sc._jvm</code> are unavailable. Use the <code>spark</code> session, DataFrames and Arrow UDFs, and <code>spark.conf</code> in place of <code>sparkContext.getConf</code>. Details below.</td></tr>
+      <tr><td><code>dbutils</code></td><td><code>getContext().toJson()</code> is unsupported; use <code>.safeToJson()</code> (DBR 13.3 LTS+). In standard mode, <code>get_context()</code> from <code>dbruntime.databricks_repl_context</code> also returns notebook context. <code>dbutils.fs</code> commands distributed to executors do not work on volumes.</td></tr>
+      <tr><td>Volumes</td><td>Not accessible from RDDs. UDFs cannot read volumes on standard mode before DBR 14.3. <code>%sh mv</code> between volumes is unsupported (use <code>dbutils.fs.mv</code> or <code>%sh cp</code>); listing <code>/Volumes/&lt;catalog&gt;</code> or a bare schema path is unsupported (use the full volume path).</td></tr>
       <tr><td>Job principals</td><td>Job service principals need grants on the volumes, tables and external locations they use.</td></tr>
     </tbody>
   </table></div>
@@ -284,6 +299,11 @@ df = spark.read.parquet("/mnt/raw/orders")
 # After
 df = spark.table("main.sales.orders")
 df = spark.read.parquet("/Volumes/main/sales/raw/orders")</code></pre>
+  <details>
+    <summary>Unsupported <code>sc</code> commands on standard access mode</summary>
+    <p><code>emptyRDD</code>, <code>range</code>, <code>init_batched_serializer</code>, <code>parallelize</code>, <code>pickleFile</code>, <code>textFile</code>, <code>wholeTextFiles</code>, <code>binaryFiles</code>, <code>binaryRecords</code>, <code>sequenceFile</code>, <code>newAPIHadoopFile</code>, <code>newAPIHadoopRDD</code>, <code>hadoopFile</code>, <code>hadoopRDD</code>, <code>union</code>, <code>runJob</code>, <code>setSystemProperty</code>, <code>uiWebUrl</code>, <code>stop</code>, <code>setJobGroup</code>, <code>setLocalProperty</code>, <code>getConf</code>.</p>
+    <p>Replace Java UDF registration (<code>spark.udf.registerJavaFunction</code>) by registering the UDF in a <code>%scala</code> cell with <code>spark.udf.register</code> (DBR 14.3 LTS+). Choose dedicated compute instead if you need the RDD API, GPU, R, custom containers or the ML Runtime.</p>
+  </details>
   <div class="callout warn"><strong>Init-script migration notebook</strong>Run it as a workspace admin on DBR 13.3+, ideally on a bare cluster, with the dry-run mode first. Confirm cluster owners still exist, or restarts can fail with <code>PERMISSION_DENIED</code>.</div>
   <div class="callout"><strong>Gate</strong>Each job runs green on UC compute against UC tables, with no <code>hive_metastore</code> or <code>/mnt</code> references left in code.</div>
 </section>
@@ -328,7 +348,21 @@ WHERE request_params.fallback_enabled = 'true'
   AND request_params.path LIKE '%some-path%'
   AND event_time &gt;= current_date() - INTERVAL 30 DAYS
 LIMIT 10;</code></pre>
-  <div class="callout danger"><strong>No clean rollback documented</strong>The reviewed sources give no rollback procedure. Keep the Hive tables and data until the parallel run is signed off, and snapshot permissions before revoking.</div>
+  <h3>Rollback options</h3>
+  <p>There is no single undo. What is reversible depends on the method used:</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Method used</th><th>Rollback</th></tr></thead>
+    <tbody>
+      <tr><td><code>SYNC</code> / upgrade wizard</td><td>Non-destructive. The Hive table is left intact and both metastores point at the same storage. Drop the UC external table to back out. SYNC writes bookkeeping properties to the Hive table; the sources do not describe removing them.</td></tr>
+      <tr><td><code>DEEP CLONE</code> / CTAS</td><td>No undo command. The clone is a new table without pre-migration history. Keep the Hive source until the clone is validated, then drop the clone to back out.</td></tr>
+      <tr><td><code>SET MANAGED</code></td><td>Run <code>UNSET MANAGED</code> <em>before</em> dropping the managed table. See below.</td></tr>
+      <tr><td>Access revoked on old table</td><td>Re-grant. The sources give no procedure, so snapshot <code>SHOW GRANTS</code> output first.</td></tr>
+    </tbody>
+  </table></div>
+  <pre data-lang="sql"><code>ALTER TABLE main.sales.orders UNSET MANAGED;  -- reverts the table to external
+DROP TABLE  main.sales.orders;                -- re-federates it as a foreign table after the next catalog sync</code></pre>
+  <div class="callout danger"><strong>Order matters</strong>Skipping <code>UNSET MANAGED</code> before the drop risks data loss or inconsistency. For commits made between conversion and rollback, time travel works by version, not by timestamp. Seven days after rollback, Databricks deletes the data in the managed location.</div>
+  <div class="callout tip"><strong>Staged retirement</strong>Remove access first (reversible), watch for breakage, then purge the data a week or more later. Keep the Hive tables and data until the parallel run is signed off.</div>
   <div class="callout tip"><strong>Note</strong>For workspaces with no Hive metastore activity, Databricks may disable HMS access automatically (documented as starting July 2026). Confirm current behaviour for your workspace.</div>
 </section>
 
@@ -344,6 +378,9 @@ LIMIT 10;</code></pre>
       <tr><td><code>PERMISSION_DENIED</code> on cluster restart</td><td>Cluster owner deleted</td><td>Reassign owner before migrating scripts</td></tr>
       <tr><td>Job fails reading <code>/mnt/...</code></td><td>Mount path on UC compute</td><td>Use <code>/Volumes/...</code></td></tr>
       <tr><td>Access denied after cutover</td><td>Grants missing for job service principal</td><td>Grant on volumes, tables, locations</td></tr>
+      <tr><td><code>sc</code> / <code>sqlContext</code> / RDD error on standard compute</td><td>Spark Connect has no JVM or RDD access</td><td>Use <code>spark</code>, DataFrames, Arrow UDFs, <code>spark.conf</code>; or use dedicated compute</td></tr>
+      <tr><td><code>getContext().toJson()</code> fails</td><td>Unsupported on standard mode</td><td>Use <code>.safeToJson()</code> (DBR 13.3 LTS+)</td></tr>
+      <tr><td>Data loss after dropping a converted table</td><td>Dropped before <code>UNSET MANAGED</code></td><td>Always run <code>UNSET MANAGED</code> first</td></tr>
       <tr><td>Old table dropped, clone breaks</td><td>Shallow clone</td><td>Use deep clone; do not drop sources of shallow clones</td></tr>
     </tbody>
   </table></div>
@@ -387,15 +424,20 @@ LIMIT 10;</code></pre>
     <li><a href="https://kb.databricks.com/en_US/unity-catalog/cluster-scoped-init-script-to-unity-catalog-volume-migration-notebook">Cluster-scoped init script migration notebook</a> (Knowledge base)</li>
     <li><a href="https://community.databricks.com/t5/technical-blog/from-hms-to-unity-catalog-a-self-service-migration-playbook/ba-p/155116">From HMS to Unity Catalog: a self-service migration playbook</a> (Databricks Community)</li>
     <li><a href="https://docs.databricks.com/aws/en/data-governance/unity-catalog/upgrade/">Upgrade a Databricks workspace to Unity Catalog</a> (Databricks docs)</li>
+    <li><a href="https://learn.microsoft.com/en-us/azure/databricks/tables/convert-to-managed">Convert tables to Unity Catalog managed tables, including rollback</a> (Databricks docs)</li>
+    <li><a href="https://docs.databricks.com/aws/en/volumes#limitations">Volumes limitations</a> (Databricks docs)</li>
+    <li><a href="https://learn.microsoft.com/en-us/azure/databricks/data-governance/unity-catalog/jobs-update">Update jobs for Unity Catalog: scenarios and fixes</a> (Databricks docs)</li>
+    <li><a href="https://databrickslabs.github.io/ucx/docs/reference/commands/">UCX command reference</a> and <a href="https://databrickslabs.github.io/ucx/docs/reference/workflows/">workflow reference</a> (Databricks Labs)</li>
     <li><a href="https://github.com/databrickslabs/ucx">UCX on GitHub</a> (Databricks Labs)</li>
   </ul>
   <details>
     <summary>Not yet covered (verify against current docs)</summary>
     <ul>
-      <li>UCX <code>migrate-tables</code>, group-migration validation, local code migration, and status commands.</li>
-      <li>Exact <code>SET MANAGED</code> / <code>SET EXTERNAL</code> options.</li>
-      <li>Rollback procedure.</li>
-      <li>Exactly which RDD operations and <code>dbutils</code> commands are unsupported on UC compute.</li>
+      <li>Command-line detail for UCX table, group and code migration (flags, status views). The UCX reference pages linked above are the authority.</li>
+      <li>Privilege requirements and unsupported table types for <code>SET MANAGED</code>, and whether it supports <code>DRY RUN</code>.</li>
+      <li>How to remove the bookkeeping properties <code>SYNC</code> writes to Hive tables, and how to restore revoked Hive permissions.</li>
+      <li>A list of unsupported Spark configuration keys on standard access mode.</li>
+      <li>The full procedure for disabling Hive metastore access.</li>
       <li>Instance profile to storage credential mapping for storage access.</li>
     </ul>
   </details>

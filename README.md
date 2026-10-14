@@ -33,7 +33,7 @@ Open `index.html` locally, or serve the repo root with any web server.
 
 ## Status
 
-Draft. Content is based on Databricks public documentation and blog posts. Items marked "verify" in the guide, and the "Not yet covered" list in the Sources section, need confirmation against current docs.
+Draft. Content is based on Databricks public documentation and blog posts. `SET MANAGED` is a Public Preview feature (DBR 17.3 LTS+). The "Not yet covered" list in the Sources section names the details that still need confirmation against current docs.
 
 ## License
 
