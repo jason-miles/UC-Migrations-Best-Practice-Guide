@@ -74,7 +74,8 @@ code { background: var(--surface-2); padding: .1em .38em; border-radius: 5px; fo
 .sidebar .btn { background: #12303a; color: #cfdbe2; border-color: #28424e; }
 .btn:hover { border-color: var(--brand); }
 
-main { padding: 0 clamp(20px, 5vw, 72px) 80px; max-width: 1060px; }
+main { padding: 0 clamp(20px, 5vw, 72px) 80px; min-width: 0; }
+main > :not(.hero) { max-width: 960px; }
 .hero {
   margin: 0 calc(-1 * clamp(20px, 5vw, 72px)) 36px; padding: 64px clamp(20px, 5vw, 72px) 48px;
   background: radial-gradient(1200px 400px at 85% -10%, rgba(255, 54, 33, .35), transparent 60%), var(--navy);
