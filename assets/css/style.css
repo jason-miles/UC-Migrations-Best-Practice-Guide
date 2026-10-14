@@ -39,7 +39,8 @@ body {
 a { color: var(--blue); text-underline-offset: 3px; }
 [data-theme="dark"] a { color: #6db3f2; }
 code, pre, kbd { font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace; }
-code { background: var(--surface-2); padding: .1em .38em; border-radius: 5px; font-size: .88em; }
+code { background: var(--surface-2); padding: .1em .38em; border-radius: 5px; font-size: .88em; overflow-wrap: anywhere; }
+pre code { overflow-wrap: normal; }
 
 #progress { position: fixed; inset: 0 0 auto 0; height: 3px; z-index: 50; background: transparent; }
 #progress span { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--brand), var(--amber)); }
