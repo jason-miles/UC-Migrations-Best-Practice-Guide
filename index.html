@@ -233,7 +233,7 @@ ALTER CATALOG hms_in_uc DROP CONNECTION;              -- after migration</code><
   <ul>
     <li><code>SET MANAGED</code> needs <strong>DBR 17.3 LTS or above</strong> and a federated Hive metastore. The feature was announced as Public Preview in November 2025.</li>
     <li>Managed tables unlock predictive optimization (automatic compaction, clustering, vacuuming). The in-place upgrade preserves history, configuration, permissions and views.</li>
-    <li><code>DRY RUN</code> is documented for <code>SET EXTERNAL</code> only. It is not documented for <code>SET MANAGED</code>.</li>
+    <li><code>DRY RUN</code> is documented for <code>SET EXTERNAL</code> only. A syntax check against a current workspace (October 2026) accepted <code>SET MANAGED</code>, <code>SET MANAGED MOVE</code>, <code>SET MANAGED COPY</code>, <code>SET EXTERNAL</code>, <code>SET EXTERNAL DRY RUN</code> and <code>UNSET MANAGED</code>, and rejected <code>SET MANAGED ... DRY RUN</code> with <code>PARSE_SYNTAX_ERROR</code>.</li>
     <li>To convert a whole schema or catalog, iterate over the tables, or use the Labs project <code>discoverx</code>:</li>
   </ul>
   <pre data-lang="python"><code>(dx.from_tables("hms_in_uc.*.*")
@@ -302,8 +302,9 @@ df = spark.read.parquet("/Volumes/main/sales/raw/orders")</code></pre>
   <details>
     <summary>Unsupported <code>sc</code> commands on standard access mode</summary>
     <p><code>emptyRDD</code>, <code>range</code>, <code>init_batched_serializer</code>, <code>parallelize</code>, <code>pickleFile</code>, <code>textFile</code>, <code>wholeTextFiles</code>, <code>binaryFiles</code>, <code>binaryRecords</code>, <code>sequenceFile</code>, <code>newAPIHadoopFile</code>, <code>newAPIHadoopRDD</code>, <code>hadoopFile</code>, <code>hadoopRDD</code>, <code>union</code>, <code>runJob</code>, <code>setSystemProperty</code>, <code>uiWebUrl</code>, <code>stop</code>, <code>setJobGroup</code>, <code>setLocalProperty</code>, <code>getConf</code>.</p>
-    <p>Replace Java UDF registration (<code>spark.udf.registerJavaFunction</code>) by registering the UDF in a <code>%scala</code> cell with <code>spark.udf.register</code> (DBR 14.3 LTS+). Choose dedicated compute instead if you need the RDD API, GPU, R, custom containers or the ML Runtime.</p>
+    <p>Replace Java UDF registration (<code>spark.udf.registerJavaFunction</code>) by registering the UDF in a <code>%scala</code> cell with <code>spark.udf.register</code> (DBR 14.3 LTS+). Calling <code>registerJavaFunction</code> without a return type fails with <code>UC_COMMAND_NOT_SUPPORTED_IN_SHARED_ACCESS_MODE</code>, which asks you to specify the return type. Choose dedicated compute instead if you need the RDD API, GPU, R, custom containers or the ML Runtime.</p>
   </details>
+  <div class="callout tip"><strong>Checked on a live workspace</strong>A one-off serverless run (Spark Connect, the same client model as standard access mode) in October 2026 confirmed: <code>spark.sparkContext</code>, <code>spark._jvm</code> and <code>df.rdd</code> raise errors (<code>JVM_ATTRIBUTE_NOT_SUPPORTED</code>, <code>NOT_IMPLEMENTED</code>); <code>getContext().toJson()</code> fails while <code>safeToJson()</code> works; <code>get_context()</code> from <code>dbruntime.databricks_repl_context</code> works; <code>dbutils.fs.ls("/Volumes/&lt;catalog&gt;")</code> fails with <code>INVALID_VOLUME_ACCESS</code> (full volume path required). The names <code>sc</code> and <code>sqlContext</code> still exist but only as placeholder objects. This was serverless compute, not a classic standard-mode cluster, so confirm on your own clusters.</div>
   <div class="callout warn"><strong>Init-script migration notebook</strong>Run it as a workspace admin on DBR 13.3+, ideally on a bare cluster, with the dry-run mode first. Confirm cluster owners still exist, or restarts can fail with <code>PERMISSION_DENIED</code>.</div>
   <div class="callout"><strong>Gate</strong>Each job runs green on UC compute against UC tables, with no <code>hive_metastore</code> or <code>/mnt</code> references left in code.</div>
 </section>
@@ -434,7 +435,8 @@ DROP TABLE  main.sales.orders;                -- re-federates it as a foreign ta
     <summary>Not yet covered (verify against current docs)</summary>
     <ul>
       <li>Command-line detail for UCX table, group and code migration (flags, status views). The UCX reference pages linked above are the authority.</li>
-      <li>Privilege requirements and unsupported table types for <code>SET MANAGED</code>, and whether it supports <code>DRY RUN</code>.</li>
+      <li>Privilege requirements and unsupported table types for <code>SET MANAGED</code>.</li>
+      <li>Behaviour of <code>SYNC</code>, <code>DEEP CLONE</code> and <code>SET MANAGED</code> against a real legacy Hive metastore. Only statement syntax was checked, because the test workspace had legacy Hive metastore access disabled.</li>
       <li>How to remove the bookkeeping properties <code>SYNC</code> writes to Hive tables, and how to restore revoked Hive permissions.</li>
       <li>A list of unsupported Spark configuration keys on standard access mode.</li>
       <li>The full procedure for disabling Hive metastore access.</li>
