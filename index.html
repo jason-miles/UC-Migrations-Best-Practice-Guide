@@ -436,7 +436,7 @@ DROP TABLE  main.sales.orders;                -- re-federates it as a foreign ta
     <ul>
       <li>Command-line detail for UCX table, group and code migration (flags, status views). The UCX reference pages linked above are the authority.</li>
       <li>Privilege requirements and unsupported table types for <code>SET MANAGED</code>.</li>
-      <li>Behaviour of <code>SYNC</code>, <code>DEEP CLONE</code> and <code>SET MANAGED</code> against a real legacy Hive metastore. Only statement syntax was checked, because the test workspace had legacy Hive metastore access disabled.</li>
+      <li>Behaviour of <code>SYNC</code>, <code>DEEP CLONE</code> and <code>SET MANAGED</code> against a real legacy Hive metastore. Only statement syntax was checked, because the test workspace had no internal Hive metastore provisioned (legacy access was off and creating a <code>hive_metastore</code> federation connection failed with <code>INTERNAL_HMS_NOT_PROVISIONED</code>).</li>
       <li>How to remove the bookkeeping properties <code>SYNC</code> writes to Hive tables, and how to restore revoked Hive permissions.</li>
       <li>A list of unsupported Spark configuration keys on standard access mode.</li>
       <li>The full procedure for disabling Hive metastore access.</li>
