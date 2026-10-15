@@ -14,6 +14,14 @@
     localStorage.setItem('uc-theme', next);
   });
 
+  $('#print').addEventListener('click', () => print());
+
+  // Mobile menu
+  const tog = $('#navtoggle'), side = $('#sidenav');
+  const setMenu = open => { side.classList.toggle('open', open); tog.setAttribute('aria-expanded', open); tog.textContent = open ? 'Close' : 'Menu'; };
+  tog.addEventListener('click', () => setMenu(!side.classList.contains('open')));
+  $$('#sidenav nav a').forEach(a => a.addEventListener('click', () => { if (matchMedia('(max-width: 940px)').matches) setMenu(false); }));
+
   // Reading progress
   const bar = $('#progress span');
   const onScroll = () => {
@@ -53,6 +61,38 @@
       b.textContent = 'Copied'; setTimeout(() => (b.textContent = 'Copy'), 1400);
     });
     pre.appendChild(b);
+  });
+
+  // Step gates: persisted, shown in the sidebar
+  const gates = $$('input[data-gate]');
+  const gateTally = () => {
+    gates.forEach(g => links.get(g.dataset.gate)?.classList.toggle('done', g.checked));
+    const done = gates.filter(g => g.checked).length;
+    $('#gate-tally').textContent = `Gates passed: ${done} of ${gates.length}`;
+  };
+  gates.forEach(g => {
+    g.checked = localStorage.getItem('uc-gate-' + g.dataset.gate) === '1';
+    g.addEventListener('change', () => { localStorage.setItem('uc-gate-' + g.dataset.gate, g.checked ? '1' : '0'); gateTally(); });
+  });
+  gateTally();
+
+  // Light syntax highlighting (comments, strings, keywords)
+  const esc = t => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const SQL = 'SELECT|FROM|WHERE|GROUP BY|HAVING|CREATE|ALTER|DROP|TABLE|VIEW|CATALOG|SCHEMA|CONNECTION|AS|SET|UNSET|MANAGED|EXTERNAL|MOVE|COPY|SYNC|DRY RUN|CONVERT TO DELTA|DEEP CLONE|SHALLOW CLONE|GRANT|REVOKE|ON|TO|INTO|USE|SHOW|DESCRIBE|INSERT|OVERWRITE|LIKE|AND|OR|NOT|IF EXISTS|IF NOT EXISTS|WITH|OPTIONS|TYPE|USING|LOCATION|PARTITIONED BY|COUNT|MAX|MIN|INTERVAL|DAYS';
+  const rx = {
+    sql: new RegExp("(--[^\\n]*)|('(?:[^'\\\\\\n]|\\\\.)*')|\\b(" + SQL + ")\\b", 'gi'),
+    sh: /(^|\s)(#[^\n]*)|("(?:[^"\\\n]|\\.)*"|'[^'\n]*')/g,
+    py: /(#[^\n]*)|("(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*')|\b(import|from|def|return|for|in|if|else|with|as|try|except|print|True|False|None)\b/g
+  };
+  $$('pre[data-lang] code').forEach(code => {
+    const lang = code.parentElement.dataset.lang.toLowerCase();
+    const text = code.textContent;
+    let html;
+    if (lang === 'sql') html = esc(text).replace(rx.sql, (m, c, st, k) => c ? `<span class="c">${c}</span>` : st ? `<span class="s">${st}</span>` : `<span class="k">${k}</span>`);
+    else if (lang === 'bash' || lang === 'sh' || lang === 'shell') html = esc(text).replace(rx.sh, (m, pre, c, st) => c ? `${pre}<span class="c">${c}</span>` : `<span class="s">${st}</span>`);
+    else if (lang === 'python' || lang === 'py') html = esc(text).replace(rx.py, (m, c, st, k) => c ? `<span class="c">${c}</span>` : st ? `<span class="s">${st}</span>` : `<span class="k">${k}</span>`);
+    else return;
+    code.innerHTML = html;
   });
 
   // Persisted checklists

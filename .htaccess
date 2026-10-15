@@ -10,12 +10,15 @@ AddDefaultCharset UTF-8
   AddOutputFilterByType DEFLATE text/html text/css application/javascript image/svg+xml application/json
 </IfModule>
 
+AddType font/woff2 .woff2
+
 # Caching: long-lived for assets, revalidate for HTML
 <IfModule mod_expires.c>
   ExpiresActive On
   ExpiresByType text/css "access plus 1 month"
   ExpiresByType application/javascript "access plus 1 month"
   ExpiresByType image/svg+xml "access plus 1 month"
+  ExpiresByType font/woff2 "access plus 1 year"
   ExpiresByType text/html "access plus 0 seconds"
 </IfModule>
 
@@ -24,7 +27,11 @@ AddDefaultCharset UTF-8
   Header always set X-Content-Type-Options "nosniff"
   Header always set X-Frame-Options "SAMEORIGIN"
   Header always set Referrer-Policy "strict-origin-when-cross-origin"
-  Header always set Content-Security-Policy "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; base-uri 'self'; form-action 'none'"
+  Header always set Permissions-Policy "camera=(), microphone=(), geolocation=()"
+  <FilesMatch "\.woff2$">
+    Header set Cache-Control "public, max-age=31536000, immutable"
+  </FilesMatch>
+  Header always set Content-Security-Policy "default-src 'self'; font-src 'self'; script-src 'self'; object-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; base-uri 'self'; form-action 'none'"
 </IfModule>
 
 # Block dotfiles and repo metadata
