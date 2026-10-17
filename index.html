@@ -40,6 +40,7 @@
       <li><a href="#step-6"><span class="n">06</span>Compute, jobs &amp; code</a></li>
       <li><a href="#step-7"><span class="n">07</span>Validate &amp; parallel run</a></li>
       <li><a href="#step-8"><span class="n">08</span>Cutover &amp; decommission</a></li>
+      <li><a href="#appendix"><span class="n">+</span>Tracker, risks &amp; first wave</a></li>
       <li><a href="#pitfalls"><span class="n"><svg class="i" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg></span>Pitfalls &amp; fixes</a></li>
       <li><a href="#checklist"><span class="n"><svg class="i" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 17 2 2 4-4"/><path d="m3 7 2 2 4-4"/><path d="M13 6h8"/><path d="M13 12h8"/><path d="M13 18h8"/></svg></span>Master checklist</a></li>
       <li><a href="#sources"><span class="n"><svg class="i" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg></span>Sources &amp; gaps</a></li>
@@ -92,6 +93,48 @@
     </div>
     <div id="verdict" role="status" aria-live="polite"></div>
   </div>
+
+  <h3>0.1 Downtime position</h3>
+  <p>Attaching a Unity Catalog metastore does not require platform downtime: existing workloads keep using <code>hive_metastore</code> while tables and code move in phases. The outage risk sits in switching active writers and readers from old table references to the new objects, and in disabling Hive access before every consumer has moved. Avoid a big-bang migration unless the estate is small and fully understood.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Activity</th><th>Expected impact</th><th>Control</th></tr></thead>
+    <tbody>
+      <tr><td>Create or identify the UC metastore</td><td>No planned workload outage</td><td>Try it in a non-production workspace first</td></tr>
+      <tr><td>Attach the workspace to Unity Catalog</td><td>Hive workloads keep running during the transition</td><td>Keep <code>hive_metastore</code> available; check the workspace default catalog (see Step 2)</td></tr>
+      <tr><td>Federate the Hive metastore</td><td>Low-disruption bridge; no data movement for initial access</td><td>Validate permissions and namespace behaviour</td></tr>
+      <tr><td><code>SYNC</code> external tables</td><td>Usually online; source stays available</td><td>Schedule repeat syncs during the transition</td></tr>
+      <tr><td><code>DEEP CLONE</code> / CTAS of managed tables</td><td>Copy can run online but creates a new target table</td><td>Freeze or control source writes for the final cutover</td></tr>
+      <tr><td>Update jobs, notebooks, dashboards, apps</td><td>Consumer-specific</td><td>Deploy in waves; test before production</td></tr>
+      <tr><td>Disable Hive metastore access</td><td>Intentional breaking change for unmigrated consumers</td><td>Only after exit criteria are met (Step 8)</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>0.2 Roles and responsibilities</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Role</th><th>Responsibility</th></tr></thead>
+    <tbody>
+      <tr><td>Migration lead</td><td>Plan, sequencing, risk, go/no-go decision</td></tr>
+      <tr><td>Databricks platform owner</td><td>UC metastore, workspace attachment, compute, networking, policies</td></tr>
+      <tr><td>Data engineering</td><td>Table migration, pipelines, schemas, data quality, reconciliation</td></tr>
+      <tr><td>Security / governance</td><td>Catalog structure, ownership, grants, masking, row filters, audit, residency controls</td></tr>
+      <tr><td>Application / BI owners</td><td>Query, dashboard, semantic-layer and API updates</td></tr>
+      <tr><td>Operations / SRE</td><td>Monitoring, incident response, backup and restore, rollback execution</td></tr>
+      <tr><td>Business owner</td><td>Confirms critical reports and business processes are correct</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>0.3 Assumptions to confirm and migration controls</h3>
+  <ul class="check">
+    <li><input type="checkbox"><span>The target region has a UC metastore, and account-level users, groups and service principals exist.</span></li>
+    <li><input type="checkbox"><span>Catalog and schema design is agreed; storage credentials and external locations are available for external tables.</span></li>
+    <li><input type="checkbox"><span>Critical jobs and downstream consumers have named owners.</span></li>
+    <li><input type="checkbox"><span>Original Hive tables are preserved until validation and rollback windows expire.</span></li>
+    <li><input type="checkbox"><span>History, permissions, views and non-Delta formats are validated explicitly, because behaviour differs by method.</span></li>
+    <li><input type="checkbox"><span>A migration tracker exists with one row per table, view, job, dashboard and application (template in the appendix).</span></li>
+    <li><input type="checkbox"><span>A change window is set for each wave, with a freeze on unplanned schema and permission changes during cutover.</span></li>
+    <li><input type="checkbox"><span>Incident escalation contacts and rollback authority are named.</span></li>
+    <li><input type="checkbox"><span>The current Hive state (definitions, locations, owners, grants, dependencies) is captured, and backup, retention and recovery for source data are confirmed.</span></li>
+  </ul>
 </section>
 
 <!-- STEP 1 -->
@@ -110,9 +153,22 @@ databricks labs ucx ensure-assessment-run</code></pre>
 
   <h3>1.2 Inventory what to move</h3>
   <ul>
-    <li>Groups, external locations and <strong>mount points</strong>, tables and views, workflows, notebooks.</li>
+    <li>Groups, external locations and <strong>mount points</strong>, tables and views, functions, workflows, notebooks.</li>
     <li>Use the UCX readiness score as the baseline for tracking progress.</li>
+    <li>Per table: format, size, partitioning, last read and last write, managed or external, Delta history and retention needs, and the table location.</li>
+    <li>Per consumer: readers and writers by job, notebook, dashboard, API or application; hard-coded paths and two-level table names; Hive-specific SQL such as <code>MSCK</code>, <code>ALTER TABLE ... PARTITION</code> and <code>LOCATION</code>; streaming checkpoints and state locations; downstream extracts and reverse-ETL processes.</li>
+    <li>Governance: legacy ACLs, workspace-local groups, and PII, confidential, regulatory or residency-sensitive data.</li>
   </ul>
+  <p>Classify every object:</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Class</th><th>Meaning</th></tr></thead>
+    <tbody>
+      <tr><td>Migrate now</td><td>Active, business-critical and technically ready</td></tr>
+      <tr><td>Remediate first</td><td>Active but blocked by permissions, format, code or storage issues</td></tr>
+      <tr><td>Retire</td><td>Unused, duplicate or superseded</td></tr>
+      <tr><td>Defer</td><td>Low risk, with a named owner and a later migration wave</td></tr>
+    </tbody>
+  </table></div>
 
   <h3>1.3 De-scope dead weight with system tables and lineage</h3>
   <p>Query usage and lineage to find inactive jobs and unused tables. One public case study de-scoped roughly 40% of jobs this way, which shrank the migration and the validation burden.</p>
@@ -122,6 +178,7 @@ FROM system.access.table_lineage
 WHERE source_table_full_name LIKE 'hive_metastore.%'
 GROUP BY 1
 HAVING MAX(event_time) &lt; current_date() - INTERVAL 90 DAYS;</code></pre>
+  <div class="callout warn"><strong>Evidence, not proof</strong>Lineage only records reads on compute that captures it, and only for the system-table retention period. A table with no lineage rows at all will not appear in the query above. Left-join the result to the UCX table inventory so never-seen tables are reviewed with their owners, not silently dropped.</div>
 
   <label class="gate"><input type="checkbox" data-gate="step-1"><span><strong>Gate</strong>Signed-off inventory, a de-scoped list of tables and jobs, and an owner named for every in-scope schema.</span></label>
 </section>
@@ -136,7 +193,19 @@ HAVING MAX(event_time) &lt; current_date() - INTERVAL 90 DAYS;</code></pre>
     <li><input type="checkbox"><span>Catalog strategy chosen (by environment, business domain, or both) and documented.</span></li>
     <li><input type="checkbox"><span>Schema mapping reviewed, e.g. <code>hive_metastore.sales</code> to <code>prod.sales</code>.</span></li>
     <li><input type="checkbox"><span>Group ownership chosen for catalogs and schemas (not individual users).</span></li>
+    <li><input type="checkbox"><span>Managed versus external table strategy, storage locations and external locations decided.</span></li>
+    <li><input type="checkbox"><span>Catalog-to-workspace bindings, service principal access, and dev / test / prod separation decided.</span></li>
+    <li><input type="checkbox"><span>Cross-workspace and cross-region sharing requirements noted.</span></li>
   </ul>
+
+  <h3>Naming model and baseline grants</h3>
+  <p>Use one consistent pattern, for example <code>&lt;domain&gt;_&lt;environment&gt;.&lt;schema&gt;.&lt;table&gt;</code> such as <code>finance_prod.core.customer</code> or <code>risk_prod.transactions.alerts</code>. Create the targets and baseline grants for groups, not individuals:</p>
+  <pre data-lang="sql"><code>CREATE CATALOG IF NOT EXISTS finance_prod;
+CREATE SCHEMA  IF NOT EXISTS finance_prod.core;
+GRANT USE CATALOG ON CATALOG finance_prod TO `finance-data-users`;
+GRANT USE SCHEMA  ON SCHEMA  finance_prod.core TO `finance-data-users`;
+GRANT SELECT      ON SCHEMA  finance_prod.core TO `finance-data-users`;</code></pre>
+  <div class="callout warn"><strong>Default catalog</strong>On a workspace where UC was enabled automatically, the workspace catalog is the default catalog. On a manually enabled workspace, <code>hive_metastore</code> is the default, so unqualified two-level names keep resolving to Hive until you change it. Keep <code>hive_metastore</code> as the default while migrating, unless you have fully migrated off Hive, and use three-level names in migrated code.</div>
 
   <h3>Generate and review the table mapping</h3>
   <pre data-lang="bash"><code>databricks labs ucx create-table-mapping
@@ -153,6 +222,7 @@ databricks labs ucx create-catalogs-schemas   # optional: create the targets</co
   <h3>3.1 Identity: workspace groups to account groups</h3>
   <ul>
     <li>Grant access to <strong>account-level</strong> users and groups, never to workspace-local groups.</li>
+    <li>Provision users, groups and service principals at the account level first (typically SCIM sync from your identity provider), then map legacy principals to target groups and define ownership groups for catalogs, schemas, tables, volumes and external locations.</li>
     <li>UCX provides a group migration workflow that upgrades membership to account-level groups and migrates permissions.</li>
   </ul>
 
@@ -162,7 +232,7 @@ databricks labs ucx create-catalogs-schemas   # optional: create the targets</co
   <pre data-lang="bash"><code>databricks labs ucx create-uber-principal   # read-only SP over all table storage; used by workflow compute
 databricks labs ucx principal-prefix-access # optional: discover storage accounts and credentials in use
 databricks labs ucx migrate-credentials     # optional: create UC storage credentials
-# optional: migrate locations -> creates UC external locations from the assessment</code></pre>
+databricks labs ucx migrate-locations       # optional: create UC external locations from the assessment</code></pre>
   <div class="callout warn"><strong>Clean up</strong>Deprovision the uber principal when the upgrade is finished.</div>
 
   <h3>3.3 Mounts and DBFS files to external locations and volumes</h3>
@@ -199,7 +269,7 @@ dbutils.fs.unmount("/mnt/oldpath")               # after jobs are repointed</cod
       <tr><td>External, Delta/Parquet</td><td><code>SYNC</code> or upgrade wizard</td><td>External table (metadata only)</td></tr>
       <tr><td>External, Hive SerDe</td><td><code>CONVERT TO DELTA</code> then <code>SYNC</code></td><td>External table</td></tr>
       <tr><td>Managed, DBFS root, Delta/Parquet</td><td><code>DEEP CLONE</code> (CTAS if prerequisites fail)</td><td>Managed table</td></tr>
-      <tr><td>Managed, outside workspace storage</td><td><code>SYNC</code></td><td>External table</td></tr>
+      <tr><td>Managed, outside workspace storage</td><td><code>SYNC ... AS EXTERNAL</code></td><td>External table</td></tr>
       <tr><td>Foreign catalog (federated)</td><td><code>SET MANAGED MOVE</code> / <code>SET EXTERNAL</code></td><td>Managed or external table</td></tr>
       <tr><td>Views</td><td>Recreate manually</td><td>View on three-level names</td></tr>
     </tbody>
@@ -209,7 +279,11 @@ dbutils.fs.unmount("/mnt/oldpath")               # after jobs are repointed</cod
   <p><code>SYNC</code> is metadata-only, works per table or per schema, writes bookkeeping properties back to the Hive table, and can be re-run to pick up source changes, which supports a gradual hybrid transition. The upgrade wizard wraps SYNC in Catalog Explorer (external tables only, can be scheduled) and needs a storage credential, an external location and <code>CREATE EXTERNAL TABLE</code>.</p>
   <pre data-lang="sql"><code>-- Dry run first
 SYNC TABLE main.sales.orders FROM hive_metastore.sales.orders DRY RUN;
-SYNC SCHEMA main.sales FROM hive_metastore.sales;</code></pre>
+SYNC SCHEMA main.sales FROM hive_metastore.sales SET OWNER `data-owners`;
+
+-- Hive managed table stored outside workspace storage: AS EXTERNAL is required
+SYNC TABLE main.sales.events AS EXTERNAL FROM hive_metastore.sales.events;</code></pre>
+  <p>Read the status code in the result: <code>SUCCESS</code> and <code>DRY_RUN_SUCCESS</code> are good; <code>NOT_EXTERNAL</code> means a managed table needs <code>AS EXTERNAL</code>; <code>DBFS_ROOT_LOCATION</code> means use <code>DEEP CLONE</code>; <code>HIVE_SERDE</code> means convert to Delta first; <code>TABLE_ALREADY_EXISTS</code> is a target name clash. External table paths must not overlap, or sit under managed storage. Schedule repeat <code>SYNC</code> runs while the source is still written, and agree the final sync point for cutover.</p>
 
   <h3>4.2 Hive SerDe tables</h3>
   <p>SerDe tables fail with <code>UPGRADE_NOT_SUPPORTED.HIVE_SERDE</code>. Convert first:</p>
@@ -220,6 +294,11 @@ SYNC TABLE main.sales.orders FROM hive_metastore.sales.orders;</code></pre>
   <p>Clone is almost always preferred over CTAS. It needs managed Delta tables and must be a <strong>deep</strong> clone from Hive to UC.</p>
   <pre data-lang="sql"><code>CREATE OR REPLACE TABLE main.sales.customers
 DEEP CLONE hive_metastore.sales.customers;</code></pre>
+  <ul>
+    <li>A deep clone creates a new table. It does not preserve source history, so confirm whether consumers need time travel before choosing it.</li>
+    <li>For actively written tables, run a final reconciliation after the last source write.</li>
+    <li>Do not delete the Hive source until the rollback window has expired.</li>
+  </ul>
   <div class="callout warn"><strong>Shallow clones</strong>Do not drop the old Hive table if a shallow clone was used.</div>
 
   <h3>4.4 Federated route: upgrade foreign tables in place</h3>
@@ -230,12 +309,15 @@ DEEP CLONE hive_metastore.sales.customers;</code></pre>
     <li>Grant privileges on the foreign catalog (row and column filters are available).</li>
     <li>Point workloads at it with <code>USE CATALOG hms_in_uc</code> or by setting it as the compute default catalog.</li>
   </ol>
+  <p>Federation supports managed and external tables, schemas, views and Hive SerDe tables. It does not expose Hive functions and UDFs or JDBC-backed tables, so recreate functions in Unity Catalog by hand. Supported compute is SQL warehouses, serverless, and standard or dedicated access mode on DBR 13.3 LTS, 14.3 LTS and 15.1+; no-isolation clusters are excluded. Fallback mode lets a workload use cluster- or notebook-scoped credentials when a UC permission check fails; it is meant only for the migration period.</p>
+  <p><strong>Rules for the bridge period:</strong> keep source Hive tables intact; use fully qualified names; allow no new production dependencies on Hive-only objects; record all reads and writes to the source tables; agree a maximum bridge duration; and monitor permission differences between legacy ACLs and UC grants. Joins that mix <code>hive_metastore</code> data across workspaces fail.</p>
   <pre data-lang="sql"><code>ALTER TABLE hms_in_uc.sales.orders SET MANAGED MOVE;  -- to UC managed; disables the source table (recommended)
 ALTER TABLE hms_in_uc.sales.orders SET MANAGED COPY;  -- to UC managed; source stays accessible
 ALTER TABLE hms_in_uc.sales.orders SET EXTERNAL;      -- to UC external (supports DRY RUN)
 ALTER CATALOG hms_in_uc DROP CONNECTION;              -- after migration</code></pre>
   <ul>
-    <li><code>SET MANAGED</code> needs <strong>DBR 17.3 LTS or above</strong> and a federated Hive metastore. The feature was announced as Public Preview in November 2025.</li>
+    <li><code>SET MANAGED</code> needs <strong>DBR 17.3 LTS or above, or serverless compute</strong>, and a foreign table federated from a Hive metastore or AWS Glue. It was announced as Public Preview in November 2025; the current docs mark the Catalog Explorer conversion as Beta, so confirm the status of the SQL path before relying on it.</li>
+    <li>Privileges for a foreign table: <code>OWNER</code> or <code>MANAGE</code> on the table, plus <code>CREATE</code> on the external location. Tables using column mapping with <code>minReaderVersion=2</code> and <code>minWriterVersion=7</code> fail conversion. After conversion, readers and writers need DBR 15.4 LTS or above.</li>
     <li>Managed tables unlock predictive optimization (automatic compaction, clustering, vacuuming). The in-place upgrade preserves history, configuration, permissions and views.</li>
     <li><code>DRY RUN</code> is documented for <code>SET EXTERNAL</code> only. A syntax check against a current workspace (October 2026) accepted <code>SET MANAGED</code>, <code>SET MANAGED MOVE</code>, <code>SET MANAGED COPY</code>, <code>SET EXTERNAL</code>, <code>SET EXTERNAL DRY RUN</code> and <code>UNSET MANAGED</code>, and rejected <code>SET MANAGED ... DRY RUN</code> with <code>PARSE_SYNTAX_ERROR</code>.</li>
     <li>To convert a whole schema or catalog, iterate over the tables, or use the Labs project <code>discoverx</code>:</li>
@@ -243,11 +325,11 @@ ALTER CATALOG hms_in_uc DROP CONNECTION;              -- after migration</code><
   <pre data-lang="python"><code>(dx.from_tables("hms_in_uc.*.*")
    .with_sql("ALTER TABLE {full_table_name} SET MANAGED MOVE;")
    .apply())</code></pre>
-  <div class="callout warn"><strong>Preview feature</strong>Privilege requirements and unsupported table types for <code>SET MANAGED</code> are not covered in the sources reviewed. Read the "Foreign tables using SQL" section of the Databricks convert-to-managed docs before running it, and rehearse with <code>COPY</code> first if rollback matters.</div>
+  <div class="callout warn"><strong>Rehearse first</strong>Rehearse with <code>SET MANAGED COPY</code> on a non-critical table if rollback matters, and read the "Foreign tables using SQL" section of the convert-to-managed docs before running <code>MOVE</code>.</div>
   <p>Access through an external Hive metastore (or AWS Glue) is read-only; the internal workspace metastore is read-write.</p>
 
-  <h3>4.5 Views</h3>
-  <p>Recreate views after <em>all</em> referenced tables are migrated, rewriting references to three-level names.</p>
+  <h3>4.5 Views and functions</h3>
+  <p>Recreate views after <em>all</em> referenced tables are migrated, rewriting references to three-level names. Recreate functions in the target catalog. Update every reference to <code>hive_metastore.schema.table</code>, two-level <code>schema.table</code> names, hard-coded cloud storage paths, and workspace-local functions or temporary objects.</p>
 
   <h3>4.6 Run the UCX table migration workflow</h3>
   <p>Run from the README notebook or <strong>Jobs &amp; Pipelines</strong> after the preparatory tasks in Step 3. External Hive tables are upgraded with <code>SYNC</code>; managed DBFS-root tables with <code>DEEP CLONE</code>. Hive managed tables must be Delta or Parquet. Expect to run it more than once.</p>
@@ -265,6 +347,8 @@ ALTER CATALOG hms_in_uc DROP CONNECTION;              -- after migration</code><
     <li>Apply grants through automation (UCX or scripts), not by hand.</li>
     <li>Set table owners; the upgrade wizard recommends group ownership.</li>
     <li>Validate access parity: sample users from each group must see the same data as before.</li>
+    <li>Re-create row filters and column masks that exist as dynamic views or Hive-era workarounds, and give job service principals their own grants.</li>
+    <li>Snapshot Hive ACLs and <code>SHOW GRANTS</code> output before revoking anything, so access can be restored.</li>
   </ol>
   <pre data-lang="sql"><code>GRANT USE CATALOG ON CATALOG main TO `analysts`;
 GRANT USE SCHEMA, SELECT ON SCHEMA main.sales TO `analysts`;
@@ -285,7 +369,7 @@ SHOW GRANTS ON TABLE main.sales.orders;</code></pre>
       <tr><td>Pipelines</td><td>Lakeflow pipelines need DBR 13.1+.</td></tr>
       <tr><td>Scala</td><td>Below DBR 13.3 runs on dedicated compute; standard mode is supported on 13.3+. Scala UDFs: standard mode on 14.2+.</td></tr>
       <tr><td>ML Runtime</td><td>MLR tasks run on dedicated compute.</td></tr>
-      <tr><td>Init scripts</td><td>DBFS-based cluster-scoped init scripts stopped working after 1 Dec 2023. Move to UC volumes (DBR 13.3+) or workspace files. Scripts on standard clusters must be in the metastore artifact allowlist (<code>MANAGE_ALLOWLIST</code>).</td></tr>
+      <tr><td>Init scripts</td><td>Init scripts on DBFS have reached end of life. Move to UC volumes (DBR 13.3 LTS+ with Unity Catalog) or workspace files (DBR 11.3 LTS+ without Unity Catalog). Scripts on standard clusters must be in the metastore artifact allowlist (<code>MANAGE_ALLOWLIST</code>).</td></tr>
       <tr><td>Instance profiles</td><td>Jobs using them for non-storage cloud services (e.g. streaming services) should move to UC service credentials. Storage access goes through external locations.</td></tr>
       <tr><td>Libraries</td><td>Custom libraries must use three-level names and avoid mount points.</td></tr>
       <tr><td>RDD / <code>sc</code></td><td>Standard mode uses Spark Connect, so RDDs, <code>sc</code>, <code>sqlContext</code> and <code>sc._jvm</code> are unavailable. Use the <code>spark</code> session, DataFrames and Arrow UDFs, and <code>spark.conf</code> in place of <code>sparkContext.getConf</code>. Details below.</td></tr>
@@ -310,6 +394,17 @@ df = spark.read.parquet("/Volumes/main/sales/raw/orders")</code></pre>
   </details>
   <div class="callout tip"><strong>Checked on a live workspace</strong>A one-off serverless run (Spark Connect, the same client model as standard access mode) in October 2026 confirmed: <code>spark.sparkContext</code>, <code>spark._jvm</code> and <code>df.rdd</code> raise errors (<code>JVM_ATTRIBUTE_NOT_SUPPORTED</code>, <code>NOT_IMPLEMENTED</code>); <code>getContext().toJson()</code> fails while <code>safeToJson()</code> works; <code>get_context()</code> from <code>dbruntime.databricks_repl_context</code> works; <code>dbutils.fs.ls("/Volumes/&lt;catalog&gt;")</code> fails with <code>INVALID_VOLUME_ACCESS</code> (full volume path required). The names <code>sc</code> and <code>sqlContext</code> still exist but only as placeholder objects. This was serverless compute, not a classic standard-mode cluster, so confirm on your own clusters.</div>
   <div class="callout warn"><strong>Init-script migration notebook</strong>Run it as a workspace admin on DBR 13.3+, ideally on a bare cluster, with the dry-run mode first. Confirm cluster owners still exist, or restarts can fail with <code>PERMISSION_DENIED</code>.</div>
+  <div class="callout tip"><strong>Runtime floor</strong>Before you disable Hive access, upgrade all jobs to DBR 13.3 LTS or above. 13.3 LTS is itself past end of support, so target a current LTS. Run the compute query from the Databricks upgrade doc to find clusters in <code>NONE</code> or <code>NO_ISOLATION</code> access modes.</div>
+  <h3>Consumers to remediate and test</h3>
+  <p>Jobs and workflows; notebooks and SQL queries; Structured Streaming pipelines; Delta Live Tables / Lakeflow pipelines; SQL dashboards and alerts; BI tools and JDBC/ODBC clients; APIs and application services; data extracts and downstream platforms; data quality checks.</p>
+  <ul class="check">
+    <li><input type="checkbox"><span>Missing <code>USE CATALOG</code> / <code>USE SCHEMA</code> privileges.</span></li>
+    <li><input type="checkbox"><span>Direct filesystem or storage access that bypasses Unity Catalog.</span></li>
+    <li><input type="checkbox"><span>Hive-specific partition commands and implicit default-catalog assumptions.</span></li>
+    <li><input type="checkbox"><span>Temporary views that hide unresolved two-level table references.</span></li>
+    <li><input type="checkbox"><span>Streaming checkpoint compatibility; plan a dedicated streaming cutover.</span></li>
+    <li><input type="checkbox"><span>SQL warehouse versus cluster behaviour; service principal authentication and permissions.</span></li>
+  </ul>
   <label class="gate"><input type="checkbox" data-gate="step-6"><span><strong>Gate</strong>Each job runs green on UC compute against UC tables, with no <code>hive_metastore</code> or <code>/mnt</code> references left in code.</span></label>
 </section>
 
@@ -319,19 +414,38 @@ df = spark.read.parquet("/Volumes/main/sales/raw/orders")</code></pre>
   <p class="lede">Prove equivalence before anyone switches over.</p>
   <ul class="check">
     <li><input type="checkbox"><span>Row counts and checksums match for every migrated table.</span></li>
-    <li><input type="checkbox"><span>Schemas, partitioning and table properties match.</span></li>
+    <li><input type="checkbox"><span>Distinct business keys, null counts on critical columns, min / max timestamps, partition coverage, and totals for critical measures match.</span></li>
+    <li><input type="checkbox"><span>Duplicate and referential-integrity checks pass; latest source and target timestamps agree.</span></li>
+    <li><input type="checkbox"><span>Schemas, data types, comments, constraints, partitioning and table properties match.</span></li>
     <li><input type="checkbox"><span>Old and new pipelines run in parallel; historical and incremental loads reconcile.</span></li>
     <li><input type="checkbox"><span>Dashboards and BI connections repointed and compared.</span></li>
     <li><input type="checkbox"><span>Access-parity tests pass per group.</span></li>
   </ul>
+  <h3>Security validation</h3>
+  <ul class="check">
+    <li><input type="checkbox"><span>Unauthorised users cannot see the catalog, schema, table or sensitive columns; intended groups keep the access they need.</span></li>
+    <li><input type="checkbox"><span>Row filters and column masks behave as designed.</span></li>
+    <li><input type="checkbox"><span>External locations do not grant broader cloud-storage access than intended.</span></li>
+    <li><input type="checkbox"><span>Audit events and lineage are visible; workspace-catalog bindings block unintended cross-environment access.</span></li>
+  </ul>
+  <h3>Workload validation</h3>
+  <p>Run representative workloads in a production-like environment and compare functional output, runtime and cost, query plans, streaming latency and checkpoint progress, dashboard refreshes, job retries and failure rates, data quality alerts, and downstream delivery timings.</p>
+  <h3>Reconciliation queries</h3>
   <pre data-lang="sql"><code>SELECT 'hive' AS src, COUNT(*) AS n FROM hive_metastore.sales.orders
 UNION ALL
 SELECT 'uc',   COUNT(*)        FROM main.sales.orders;
 
--- Cheap content check
-SELECT * FROM (
-  SELECT * FROM hive_metastore.sales.orders EXCEPT SELECT * FROM main.sales.orders
-);</code></pre>
+-- Cheap content check: run both directions
+SELECT 'only_in_hive' AS side, * FROM (
+  SELECT * FROM hive_metastore.sales.orders EXCEPT ALL SELECT * FROM main.sales.orders)
+UNION ALL
+SELECT 'only_in_uc', * FROM (
+  SELECT * FROM main.sales.orders EXCEPT ALL SELECT * FROM hive_metastore.sales.orders);
+
+-- Aggregate profile for critical tables (adapt the columns)
+SELECT COUNT(*) AS row_count, MIN(event_timestamp) AS min_ts,
+       MAX(event_timestamp) AS max_ts, SUM(amount) AS amount_total
+FROM main.sales.transactions;</code></pre>
 </section>
 
 <!-- STEP 8 -->
@@ -341,9 +455,9 @@ SELECT * FROM (
   <ol>
     <li><strong>Deprecation notice.</strong> Optionally add a comment on the old Hive table; queries then show a warning.</li>
     <li><strong>Watch fallback use.</strong> Fallback mode on external locations lets unmigrated workloads keep working during federation. Check the audit log, then turn it off.</li>
-    <li><strong>Make UC the default.</strong> Set the federated (or target) catalog as the workspace default catalog.</li>
+    <li><strong>Make UC the default.</strong> Set the federated (or target) catalog as the workspace default catalog. On a single cluster, set <code>spark.databricks.sql.initial.catalog.namespace</code> to a UC catalog.</li>
     <li><strong>Block bypass.</strong> Use compute policies and <em>Enforce user isolation</em> to block clusters that skip table access control.</li>
-    <li><strong>Disable direct HMS access.</strong> Compute connects to the Hive metastore by default until you disable it workspace-wide or per cluster with a Spark configuration.</li>
+    <li><strong>Disable direct HMS access.</strong> Compute connects to the Hive metastore by default until you disable it. Workspace-wide: <em>Workspace admin &gt; Security &gt; Disable legacy access</em>, set to "Disabled: legacy access features cannot be used", wait about five minutes, then restart all clusters. Per cluster, set the Spark configurations below.</li>
     <li><strong>Drop old tables.</strong> First revoke access and re-run dependents to surface hidden dependencies.</li>
   </ol>
   <pre data-lang="sql"><code>-- Was fallback used in the last 30 days?
@@ -353,14 +467,47 @@ WHERE request_params.fallback_enabled = 'true'
   AND request_params.path LIKE '%some-path%'
   AND event_time &gt;= current_date() - INTERVAL 30 DAYS
 LIMIT 10;</code></pre>
-  <h3>Rollback options</h3>
+  <pre data-lang="bash"><code>spark.databricks.unityCatalogOnlyMode True
+spark.databricks.sql.initial.catalog.namespace &lt;uc-catalog-name&gt;</code></pre>
+  <div class="callout danger"><strong>Point of no return</strong>After 30 days with legacy Hive access disabled, the workspace becomes Unity Catalog-only permanently and direct Hive access can no longer be re-enabled. Do not disable it until every table, job and consumer has moved, and all jobs run on DBR 13.3 LTS or above.</div>
+
+  <h3>Per-wave cutover procedure</h3>
+  <p>Migrate in waves, not all at once. For each wave:</p>
+  <ol>
+    <li>Announce the cutover start and the affected assets.</li>
+    <li>Confirm there is no active incident or unresolved validation failure.</li>
+    <li>Pause or drain source writers where duplicate writes are not supported.</li>
+    <li>Run the final <code>SYNC</code>, final clone or in-place upgrade.</li>
+    <li>Reconcile source and target data.</li>
+    <li>Grant the target UC permissions.</li>
+    <li>Deploy updated jobs, notebooks, dashboards and application configuration.</li>
+    <li>Run smoke tests and business validation.</li>
+    <li>Resume writers against the Unity Catalog object.</li>
+    <li>Monitor for the agreed observation period.</li>
+    <li>Mark the wave complete only after owner sign-off.</li>
+  </ol>
+  <div class="callout tip"><strong>Go / no-go</strong>Proceed only if critical data reconciliation passes, all critical consumers are tested, required grants are validated with representative identities, no P0 / P1 defects are open, rollback data and configuration are available, and business and technical owners approve the wave.</div>
+
+  <h3>Operational rollback</h3>
+  <p>If validation or production monitoring fails after a wave:</p>
+  <ol>
+    <li>Stop new writes to the target object if it is safe to do so.</li>
+    <li>Revert jobs, notebooks, dashboards and application configuration to the Hive references.</li>
+    <li>Resume source writers only after confirming source consistency.</li>
+    <li>Compare source and target to find any writes made after cutover.</li>
+    <li>Preserve the target table and logs for investigation; do not delete or overwrite the source until the incident review is complete.</li>
+    <li>Record the failure, the corrective action and the revised cutover prerequisites.</li>
+  </ol>
+  <p>Rollback is simple for read-only consumers. It needs explicit reconciliation when the target has accepted writes, so define writer ownership and reconciliation rules before cutover.</p>
+
+  <h3>Rollback options by method</h3>
   <p>There is no single undo. What is reversible depends on the method used:</p>
   <div class="table-wrap"><table>
     <thead><tr><th>Method used</th><th>Rollback</th></tr></thead>
     <tbody>
       <tr><td><code>SYNC</code> / upgrade wizard</td><td>Non-destructive. The Hive table is left intact and both metastores point at the same storage. Drop the UC external table to back out. SYNC writes bookkeeping properties to the Hive table; the sources do not describe removing them.</td></tr>
       <tr><td><code>DEEP CLONE</code> / CTAS</td><td>No undo command. The clone is a new table without pre-migration history. Keep the Hive source until the clone is validated, then drop the clone to back out.</td></tr>
-      <tr><td><code>SET MANAGED</code></td><td>Run <code>UNSET MANAGED</code> <em>before</em> dropping the managed table. See below.</td></tr>
+      <tr><td><code>SET MANAGED</code></td><td>Run <code>UNSET MANAGED</code> <em>before</em> dropping the managed table, within the documented 14-day rollback window. See below.</td></tr>
       <tr><td>Access revoked on old table</td><td>Re-grant. The sources give no procedure, so snapshot <code>SHOW GRANTS</code> output first.</td></tr>
     </tbody>
   </table></div>
@@ -368,7 +515,50 @@ LIMIT 10;</code></pre>
 DROP TABLE  main.sales.orders;                -- re-federates it as a foreign table after the next catalog sync</code></pre>
   <div class="callout danger"><strong>Order matters</strong>Skipping <code>UNSET MANAGED</code> before the drop risks data loss or inconsistency. For commits made between conversion and rollback, time travel works by version, not by timestamp. Seven days after rollback, Databricks deletes the data in the managed location.</div>
   <div class="callout tip"><strong>Staged retirement</strong>Remove access first (reversible), watch for breakage, then purge the data a week or more later. Keep the Hive tables and data until the parallel run is signed off.</div>
-  <div class="callout tip"><strong>Note</strong>For workspaces with no Hive metastore activity, Databricks may disable HMS access automatically (documented as starting July 2026). Confirm current behaviour for your workspace.</div>
+  <div class="callout tip"><strong>Note</strong>Databricks is progressively disabling direct Hive access for workspaces with no Hive metastore usage, starting July 2026 (per the disable-HMS doc). Confirm current behaviour for your workspace.</div>
+
+  <h3>Finalisation</h3>
+  <ul class="check">
+    <li><input type="checkbox"><span>No active job, notebook, dashboard or application references <code>hive_metastore</code>; repositories and workspace objects are searched for two-level names and direct paths.</span></li>
+    <li><input type="checkbox"><span>Service principals and external clients use Unity Catalog objects.</span></li>
+    <li><input type="checkbox"><span>Temporary federation and <code>SYNC</code> schedules are removed.</span></li>
+    <li><input type="checkbox"><span>Direct Hive access is disabled under the approved change plan.</span></li>
+    <li><input type="checkbox"><span>Inventory, validation evidence, approvals and rollback records are archived.</span></li>
+    <li><input type="checkbox"><span>Obsolete Hive tables are removed only after the agreed retention period and business approval.</span></li>
+    <li><input type="checkbox"><span>Platform documentation, support procedures and onboarding materials are updated.</span></li>
+  </ul>
+</section>
+
+<!-- APPENDIX -->
+<section class="step" id="appendix">
+  <div class="step-head"><div class="step-no">+</div><h2>Tracker, risks and first wave</h2></div>
+
+  <h3>Migration tracker template</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Object</th><th>Type</th><th>Owner</th><th>Source</th><th>Target</th><th>Method</th><th>Writer?</th><th>Validation</th><th>Cutover window</th><th>Rollback</th></tr></thead>
+    <tbody>
+      <tr><td>customer</td><td>Table</td><td>Team name</td><td><code>hive_metastore.finance.customer</code></td><td><code>finance_prod.core.customer</code></td><td>SYNC / clone / in-place</td><td>Yes / No</td><td>Not started</td><td>Date / time</td><td>Ready / Not ready</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Key risks and mitigations</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Risk</th><th>Mitigation</th></tr></thead>
+    <tbody>
+      <tr><td>Hidden consumers are missed</td><td>Inventory jobs, notebooks, dashboards, APIs, BI tools and source repositories</td></tr>
+      <tr><td>Source changes during copy</td><td>Freeze writers, use repeated sync, or use an in-place upgrade path</td></tr>
+      <tr><td>Permission regression</td><td>Test with representative users and service principals</td></tr>
+      <tr><td>Different default-catalog behaviour</td><td>Use fully qualified three-level names during migration</td></tr>
+      <tr><td>Streaming interruption</td><td>Validate checkpoints and run a dedicated streaming cutover</td></tr>
+      <tr><td>Loss of historical behaviour</td><td>Confirm Delta history and time-travel needs before clone / CTAS</td></tr>
+      <tr><td>Direct storage access bypasses governance</td><td>Replace direct paths with volumes, tables or governed external locations</td></tr>
+      <tr><td>Cross-workspace access changes</td><td>Validate workspace-catalog bindings and sharing requirements</td></tr>
+      <tr><td>Rollback unsafe after target writes</td><td>Define writer ownership and reconciliation rules before cutover</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Recommended first wave</h3>
+  <p>Start with a representative, low-risk domain: a small number of active tables, at least one external and one managed Delta table, one batch job and one dashboard, known owners, and no irreversible downstream writes. Use it to validate the catalog model, grants, tooling, reconciliation checks, deployment process, monitoring and rollback before scaling to critical domains.</p>
 </section>
 
 <!-- PITFALLS -->
@@ -387,6 +577,11 @@ DROP TABLE  main.sales.orders;                -- re-federates it as a foreign ta
       <tr><td><code>getContext().toJson()</code> fails</td><td>Unsupported on standard mode</td><td>Use <code>.safeToJson()</code> (DBR 13.3 LTS+)</td></tr>
       <tr><td>Data loss after dropping a converted table</td><td>Dropped before <code>UNSET MANAGED</code></td><td>Always run <code>UNSET MANAGED</code> first</td></tr>
       <tr><td>Old table dropped, clone breaks</td><td>Shallow clone</td><td>Use deep clone; do not drop sources of shallow clones</td></tr>
+      <tr><td><code>SYNC</code> reports <code>NOT_EXTERNAL</code></td><td>Hive managed table outside workspace storage</td><td>Add <code>AS EXTERNAL</code></td></tr>
+      <tr><td><code>SET MANAGED</code> conversion fails</td><td>Column mapping with <code>minReaderVersion=2</code> / <code>minWriterVersion=7</code>, or missing <code>CREATE</code> on the external location</td><td>Check table protocol and privileges; use <code>COPY</code> to rehearse</td></tr>
+      <tr><td>Hive function not visible in the foreign catalog</td><td>Federation does not expose Hive functions and UDFs</td><td>Recreate the function in Unity Catalog</td></tr>
+      <tr><td>Join across workspaces fails on <code>hive_metastore</code></td><td>Hive metastore data is workspace-bound</td><td>Migrate both sides to UC before joining across workspaces</td></tr>
+      <tr><td>Cannot re-enable Hive access</td><td>Legacy access disabled for more than 30 days</td><td>Plan for a permanent UC-only workspace; test before the 30 days end</td></tr>
     </tbody>
   </table></div>
 </section>
@@ -396,6 +591,7 @@ DROP TABLE  main.sales.orders;                -- re-federates it as a foreign ta
   <div class="step-head"><div class="step-no">&#10003;</div><h2>Master checklist</h2></div>
   <p class="lede">Progress saves in this browser. <span id="tally"></span></p>
   <ul class="check">
+    <li><input type="checkbox"><span>Roles, change windows, freeze and rollback authority agreed; migration tracker created.</span></li>
     <li><input type="checkbox"><span>UCX installed; assessment run; readiness score recorded.</span></li>
     <li><input type="checkbox"><span>Inactive jobs and tables de-scoped using system tables.</span></li>
     <li><input type="checkbox"><span>Table mapping CSV reviewed and committed.</span></li>
@@ -406,9 +602,10 @@ DROP TABLE  main.sales.orders;                -- re-federates it as a foreign ta
     <li><input type="checkbox"><span>Managed tables cloned; views recreated.</span></li>
     <li><input type="checkbox"><span>Permissions migrated; access parity validated.</span></li>
     <li><input type="checkbox"><span>Clusters, init scripts, libraries and jobs UC-compatible.</span></li>
-    <li><input type="checkbox"><span>Parallel run reconciled; sign-off recorded.</span></li>
+    <li><input type="checkbox"><span>First wave completed and its lessons applied to later waves.</span></li>
+    <li><input type="checkbox"><span>Parallel run reconciled; per-wave go / no-go and sign-off recorded.</span></li>
     <li><input type="checkbox"><span>Fallback mode off; default catalog set; direct HMS access disabled.</span></li>
-    <li><input type="checkbox"><span>Legacy tables and uber principal retired.</span></li>
+    <li><input type="checkbox"><span>Legacy tables and uber principal retired; evidence archived.</span></li>
   </ul>
   <button class="btn" id="reset" type="button">Reset checklist</button>
 </section>
@@ -430,6 +627,11 @@ DROP TABLE  main.sales.orders;                -- re-federates it as a foreign ta
     <li><a href="https://community.databricks.com/t5/technical-blog/from-hms-to-unity-catalog-a-self-service-migration-playbook/ba-p/155116">From HMS to Unity Catalog: a self-service migration playbook</a> (Databricks Community)</li>
     <li><a href="https://docs.databricks.com/aws/en/data-governance/unity-catalog/upgrade/">Upgrade a Databricks workspace to Unity Catalog</a> (Databricks docs)</li>
     <li><a href="https://learn.microsoft.com/en-us/azure/databricks/tables/convert-to-managed">Convert tables to Unity Catalog managed tables, including rollback</a> (Databricks docs)</li>
+    <li><a href="https://docs.databricks.com/aws/en/data-governance/unity-catalog/disable-hms">Disable access to the Hive metastore</a> (Databricks docs)</li>
+    <li><a href="https://docs.databricks.com/aws/en/tables/convert-to-managed">Convert tables to Unity Catalog managed tables</a> (Databricks docs)</li>
+    <li><a href="https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-syntax-aux-sync">SYNC command reference</a> (Databricks docs)</li>
+    <li><a href="https://docs.databricks.com/aws/en/init-scripts/">Init scripts</a> (Databricks docs)</li>
+    <li><a href="https://docs.databricks.com/aws/en/data-governance/unity-catalog/hive-metastore">Work with the legacy Hive metastore alongside Unity Catalog</a> (Databricks docs)</li>
     <li><a href="https://docs.databricks.com/aws/en/volumes#limitations">Volumes limitations</a> (Databricks docs)</li>
     <li><a href="https://learn.microsoft.com/en-us/azure/databricks/data-governance/unity-catalog/jobs-update">Update jobs for Unity Catalog: scenarios and fixes</a> (Databricks docs)</li>
     <li><a href="https://databrickslabs.github.io/ucx/docs/reference/commands/">UCX command reference</a> and <a href="https://databrickslabs.github.io/ucx/docs/reference/workflows/">workflow reference</a> (Databricks Labs)</li>
@@ -439,15 +641,16 @@ DROP TABLE  main.sales.orders;                -- re-federates it as a foreign ta
     <summary>Not yet covered (verify against current docs)</summary>
     <ul>
       <li>Command-line detail for UCX table, group and code migration (flags, status views). The UCX reference pages linked above are the authority.</li>
-      <li>Privilege requirements and unsupported table types for <code>SET MANAGED</code>.</li>
       <li>Behaviour of <code>SYNC</code>, <code>DEEP CLONE</code> and <code>SET MANAGED</code> against a real legacy Hive metastore. Only statement syntax was checked, because the test workspace had no internal Hive metastore provisioned (legacy access was off and creating a <code>hive_metastore</code> federation connection failed with <code>INTERNAL_HMS_NOT_PROVISIONED</code>).</li>
-      <li>How to remove the bookkeeping properties <code>SYNC</code> writes to Hive tables, and how to restore revoked Hive permissions.</li>
+      <li>How to remove the bookkeeping properties <code>SYNC</code> has already written to Hive tables, and how to restore revoked Hive permissions.</li>
       <li>A list of unsupported Spark configuration keys on standard access mode.</li>
-      <li>The full procedure for disabling Hive metastore access.</li>
+      <li>The Spark configuration key that stops <code>SYNC</code> writing bookkeeping properties (the SYNC reference says it exists from DBR 12.2).</li>
+      <li>DBR minimums for Lakeflow pipelines and Scala, taken from earlier research and not re-checked against the current docs.</li>
+      <li>Whether the <code>fallback_enabled</code> audit-log field in the Step 8 query matches current audit-log schemas.</li>
       <li>Instance profile to storage credential mapping for storage access.</li>
     </ul>
   </details>
-  <footer>Licensed under Apache 2.0. Commands reflect the Databricks documentation reviewed in October 2026; features and limits change, so check the linked docs before running anything in production.</footer>
+  <footer>Licensed under Apache 2.0. Commands reflect the Databricks documentation reviewed in October 2026 and an internal migration runbook; features and limits change, so check the linked docs before running anything in production.</footer>
 </section>
 
 </main>

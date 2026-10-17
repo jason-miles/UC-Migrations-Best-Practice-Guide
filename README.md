@@ -8,7 +8,7 @@ Open `index.html` locally, or serve the repo root with any web server.
 
 | # | Step | Focus |
 |---|------|-------|
-| 00 | Choose your path | Federation vs. direct migration vs. UCX, plus an interactive method chooser |
+| 00 | Choose your path | Federation vs. direct migration vs. UCX, interactive method chooser, downtime position, roles, migration controls |
 | 01 | Assess the estate | UCX assessment, inventory, system-table de-scoping |
 | 02 | Design the UC target | Catalog/schema mapping, ownership |
 | 03 | Identity and storage | Account groups, credentials, external locations, mounts to volumes |
@@ -16,7 +16,8 @@ Open `index.html` locally, or serve the repo root with any web server.
 | 05 | Migrate permissions | Hive ACLs to UC grants, access parity |
 | 06 | Compute, jobs and code | Access modes, DBR minimums, init scripts, libraries |
 | 07 | Validate and run in parallel | Reconciliation checks |
-| 08 | Cutover and decommission | Fallback mode, default catalog, disabling HMS |
+| 08 | Cutover and decommission | Fallback mode, default catalog, per-wave cutover and go/no-go, rollback, disabling HMS (30-day point of no return), finalisation |
+| + | Tracker, risks and first wave | Tracker template, risk register, first-wave guidance |
 
 ## Features
 

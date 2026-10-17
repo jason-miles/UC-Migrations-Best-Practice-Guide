@@ -120,7 +120,7 @@
     'external|delta|any': ['<span class="tag rec">Recommended</span> <code>SYNC</code> (or the upgrade wizard) into a UC <strong>external</strong> table. Metadata-only, re-runnable, no data copied.', 'step-4'],
     'external|serde|any': ['<span class="tag warn">Convert first</span> Hive SerDe tables fail SYNC with <code>UPGRADE_NOT_SUPPORTED.HIVE_SERDE</code>. Run <code>CONVERT TO DELTA</code>, then <code>SYNC</code>.', 'step-4'],
     'managed|delta|dbfsroot': ['<span class="tag rec">Recommended</span> <code>DEEP CLONE</code> into a UC <strong>managed</strong> table (SYNC cannot copy managed tables stored in workspace DBFS root). Use CTAS if clone prerequisites are not met.', 'step-4'],
-    'managed|delta|external-storage': ['<span class="tag rec">Recommended</span> <code>SYNC</code> can register these as UC <strong>external</strong> tables. Use <code>DEEP CLONE</code> if the target must be UC managed.', 'step-4'],
+    'managed|delta|external-storage': ['<span class="tag rec">Recommended</span> <code>SYNC ... AS EXTERNAL</code> registers these as UC <strong>external</strong> tables (<code>AS EXTERNAL</code> is required, otherwise the status is <code>NOT_EXTERNAL</code>). Use <code>DEEP CLONE</code> if the target must be UC managed.', 'step-4'],
     'managed|serde|any': ['<span class="tag warn">CTAS</span> Not Delta or Parquet, so clone prerequisites fail. Rewrite with <code>CREATE TABLE AS SELECT</code> into a Delta UC table.', 'step-4'],
     'view|any|any': ['<span class="tag alt">Manual</span> Recreate views <em>after</em> every referenced table is migrated, using three-level names (<code>catalog.schema.table</code>).', 'step-4']
   };
