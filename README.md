@@ -2,7 +2,9 @@
 
 A phased, step-by-step guide for migrating from the Hive metastore (HMS) to Databricks Unity Catalog, published as a static HTML site.
 
-Open `index.html` locally, or serve the repo root with any web server.
+**Read the guide: https://jason-miles.github.io/UC-Migrations-Best-Practice-Guide/**
+
+To run it locally, open `index.html` or serve the repo root with any web server.
 
 ## Phases
 
