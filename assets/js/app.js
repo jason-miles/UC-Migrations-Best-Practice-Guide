@@ -69,6 +69,7 @@
     gates.forEach(g => links.get(g.dataset.gate)?.classList.toggle('done', g.checked));
     const done = gates.filter(g => g.checked).length;
     $('#gate-tally').textContent = `Gates passed: ${done} of ${gates.length}`;
+    if (typeof overall === 'function') overall();
   };
   gates.forEach(g => {
     g.checked = localStorage.getItem('uc-gate-' + g.dataset.gate) === '1';
@@ -84,15 +85,37 @@
     sh: /(^|\s)(#[^\n]*)|("(?:[^"\\\n]|\\.)*"|'[^'\n]*')/g,
     py: /(#[^\n]*)|("(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*')|\b(import|from|def|return|for|in|if|else|with|as|try|except|print|True|False|None)\b/g
   };
-  $$('pre[data-lang] code').forEach(code => {
-    const lang = code.parentElement.dataset.lang.toLowerCase();
-    const text = code.textContent;
-    let html;
-    if (lang === 'sql') html = esc(text).replace(rx.sql, (m, c, st, k) => c ? `<span class="c">${c}</span>` : st ? `<span class="s">${st}</span>` : `<span class="k">${k}</span>`);
-    else if (lang === 'bash' || lang === 'sh' || lang === 'shell') html = esc(text).replace(rx.sh, (m, pre, c, st) => c ? `${pre}<span class="c">${c}</span>` : `<span class="s">${st}</span>`);
-    else if (lang === 'python' || lang === 'py') html = esc(text).replace(rx.py, (m, c, st, k) => c ? `<span class="c">${c}</span>` : st ? `<span class="s">${st}</span>` : `<span class="k">${k}</span>`);
-    else return;
-    code.innerHTML = html;
+  // Code samples: {{var:default}} tokens take values from "Your environment"
+  const VARS = ['hsch', 'cat', 'sch', 'tbl', 'fed', 'grp'];
+  const envKey = 'uc-env';
+  let env = {};
+  try { env = JSON.parse(localStorage.getItem(envKey) || '{}'); } catch (e) { env = {}; }
+  const clean = v => v.replace(/[^\w-]/g, '');
+  const codes = $$('pre[data-lang] code').map(code => ({ code, lang: code.parentElement.dataset.lang.toLowerCase(), src: code.textContent }));
+  const paint = ({ code, lang, src }) => {
+    const text = src.replace(/\{\{(\w+):([^}]*)\}\}/g, (m, k, d) => '\uE000' + (env[k] || d) + '\uE001');
+    let html = esc(text);
+    if (lang === 'sql') html = html.replace(rx.sql, (m, c, st, k) => c ? `<span class="c">${c}</span>` : st ? `<span class="s">${st}</span>` : `<span class="k">${k}</span>`);
+    else if (lang === 'bash' || lang === 'sh' || lang === 'shell') html = html.replace(rx.sh, (m, pre, c, st) => c ? `${pre}<span class="c">${c}</span>` : `<span class="s">${st}</span>`);
+    else if (lang === 'python' || lang === 'py') html = html.replace(rx.py, (m, c, st, k) => c ? `<span class="c">${c}</span>` : st ? `<span class="s">${st}</span>` : `<span class="k">${k}</span>`);
+    code.innerHTML = html.replace(/\uE000/g, '<mark class="v">').replace(/\uE001/g, '</mark>');
+  };
+  const paintAll = () => codes.forEach(paint);
+  paintAll();
+  $$('input[data-var]').forEach(inp => {
+    if (env[inp.dataset.var]) inp.value = env[inp.dataset.var];
+    inp.addEventListener('input', () => {
+      const v = clean(inp.value);
+      if (v !== inp.value) inp.value = v;
+      env[inp.dataset.var] = v;
+      localStorage.setItem(envKey, JSON.stringify(env));
+      paintAll();
+    });
+  });
+  $('#env-reset').addEventListener('click', () => {
+    env = {}; localStorage.removeItem(envKey);
+    $$('input[data-var]').forEach(i => { i.value = i.defaultValue; });
+    paintAll();
   });
 
   // Persisted checklists
@@ -108,12 +131,104 @@
     const all = $$('ul.check input');
     const done = all.filter(b => b.checked).length;
     $('#tally').textContent = `${done} / ${all.length} checklist items complete`;
+    overall();
   }
   tally();
   $('#reset').addEventListener('click', () => {
     $$('ul.check input').forEach((b, i) => { b.checked = false; localStorage.removeItem('uc-chk-' + i); });
     tally();
   });
+
+  // Overall progress: gates plus checklist items
+  function overall() {
+    const items = [...$$('input[data-gate]'), ...$$('ul.check input')];
+    const done = items.filter(i => i.checked).length;
+    const pct = items.length ? Math.round(done / items.length * 100) : 0;
+    $('.meter span').style.width = pct + '%';
+    $('.meter').setAttribute('aria-valuenow', pct);
+    $('#overall-label').textContent = `${pct}% complete`;
+  }
+  overall();
+
+  // Next-step links
+  const order = $$('section.step');
+  order.forEach((sec, i) => {
+    const nx = order[i + 1];
+    if (!nx || !/^step-\d$/.test(sec.id)) return;
+    const a = document.createElement('a');
+    a.className = 'next'; a.href = '#' + nx.id;
+    a.textContent = 'Next: ' + nx.querySelector('h2').textContent + ' \u2192';
+    sec.appendChild(a);
+  });
+
+  // Tracker CSV
+  $('#csv').addEventListener('click', () => {
+    const head = ['Object', 'Type', 'Owner', 'Source', 'Target', 'Method', 'Writer', 'Validation', 'Cutover window', 'Rollback'];
+    const row = ['customer', 'Table', 'Team name', 'hive_metastore.' + (env.hsch || 'sales') + '.customer', (env.cat || 'main') + '.' + (env.sch || 'sales') + '.customer', 'SYNC', 'No', 'Not started', '', 'Not ready'];
+    const q = v => '"' + v.replace(/"/g, '""') + '"';
+    const csv = [head, row].map(r => r.map(q).join(',')).join('\r\n') + '\r\n';
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    a.download = 'uc-migration-tracker.csv';
+    a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  });
+
+  // Search palette
+  const pal = $('#palette'), pq = $('#pal-q'), pl = $('#pal-list');
+  let idx = null, hits = [], sel = 0;
+  const build = () => {
+    idx = $$('main section.step').flatMap(sec => {
+      const sname = sec.querySelector('h2').textContent;
+      return $$('h3, p, li, td, summary, .gate, .callout, pre', sec).map(el => ({ el, sname, h: /^H3|SUMMARY$/.test(el.tagName), text: el.innerText.replace(/\s+/g, ' ').replace(/Copy$/, '').trim() }));
+    }).filter(r => r.text.length > 2);
+  };
+  const render = () => {
+    pl.innerHTML = '';
+    hits.forEach((r, i) => {
+      const li = document.createElement('li');
+      li.setAttribute('role', 'option'); li.setAttribute('aria-selected', i === sel);
+      const t = document.createElement('span'); t.className = 'pal-sec'; t.textContent = r.sname;
+      const x = document.createElement('span'); x.textContent = r.snip;
+      li.append(t, x);
+      li.addEventListener('click', () => go(i));
+      pl.appendChild(li);
+    });
+    if (!hits.length && pq.value.trim()) pl.innerHTML = '<li class="pal-empty">No matches</li>';
+  };
+  const search = () => {
+    if (!idx) build();
+    const terms = pq.value.toLowerCase().split(/\s+/).filter(Boolean);
+    sel = 0;
+    if (!terms.length) { hits = []; return render(); }
+    hits = idx.filter(r => terms.every(t => r.text.toLowerCase().includes(t)))
+      .sort((a, b) => (b.h - a.h) || (a.text.length - b.text.length)).slice(0, 8)
+      .map(r => {
+        const at = Math.max(0, r.text.toLowerCase().indexOf(terms[0]) - 40);
+        return { ...r, snip: (at ? '\u2026' : '') + r.text.slice(at, at + 120) };
+      });
+    render();
+  };
+  const go = i => {
+    const r = hits[i]; if (!r) return;
+    pal.close();
+    r.el.scrollIntoView({ block: 'center' });
+    r.el.classList.add('flash'); setTimeout(() => r.el.classList.remove('flash'), 1800);
+  };
+  const openPal = () => { pq.value = ''; hits = []; render(); pal.showModal(); pq.focus(); };
+  $('#search-open').addEventListener('click', openPal);
+  addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); pal.open ? pal.close() : openPal(); }
+  });
+  pq.addEventListener('input', search);
+  pq.addEventListener('keydown', e => {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      sel = (sel + (e.key === 'ArrowDown' ? 1 : -1) + hits.length) % (hits.length || 1);
+      $$('#pal-list li').forEach((li, i) => li.setAttribute('aria-selected', i === sel));
+      $$('#pal-list li')[sel]?.scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'Enter') { e.preventDefault(); go(sel); }
+  });
+  pal.addEventListener('click', e => { if (e.target === pal) pal.close(); });
 
   // Path chooser
   const advice = {

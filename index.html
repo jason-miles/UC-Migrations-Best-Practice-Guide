@@ -28,6 +28,8 @@
   </div>
   <div id="sidenav">
   <input id="filter" type="search" placeholder="Filter steps (e.g. SYNC, mounts)" aria-label="Filter steps">
+  <button class="btn search-btn" id="search-open" type="button">Search all content <kbd>Ctrl K</kbd></button>
+  <div class="overall"><div class="meter" role="progressbar" aria-label="Overall progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span></span></div><p id="overall-label">0% complete</p></div>
   <p class="gate-tally" id="gate-tally" aria-live="polite"></p>
   <nav aria-label="Steps">
     <ol>
@@ -65,6 +67,28 @@
   <div class="step-head"><div class="step-no">00</div><h2>Choose your migration path</h2></div>
   <p class="lede">Decide the approach before touching data. The path sets how much data moves and how long the legacy and new worlds coexist.</p>
 
+  <figure class="arch">
+    <figcaption>What changes: two levels become three, and three routes lead across.</figcaption>
+    <div class="arch-grid">
+      <div class="arch-col">
+        <h4>Hive metastore</h4>
+        <p>Legacy. One per workspace.</p>
+        <div class="lvl">schema</div><div class="lvl">table</div>
+        <p class="fixed">Referenced as <code>hive_metastore.schema.table</code></p>
+      </div>
+      <ul class="arch-lanes" aria-label="Migration routes">
+        <li class="lane rec"><strong>Federate, then upgrade in place</strong><span>Foreign catalog, then <code>SET MANAGED</code> or <code>SET EXTERNAL</code></span></li>
+        <li class="lane"><strong>SYNC</strong><span>External tables, metadata only</span></li>
+        <li class="lane"><strong>DEEP CLONE or CTAS</strong><span>Managed tables, data copied</span></li>
+      </ul>
+      <div class="arch-col">
+        <h4>Unity Catalog</h4>
+        <p>One metastore per region, shared by workspaces.</p>
+        <div class="lvl">catalog</div><div class="lvl">schema</div><div class="lvl">table, view, volume</div>
+      </div>
+    </div>
+  </figure>
+
   <div class="table-wrap">
   <table>
     <thead><tr><th>Path</th><th>How it works</th></tr></thead>
@@ -92,6 +116,20 @@
         <select id="c-loc"><option value="any">Cloud storage (external location)</option><option value="dbfsroot">Workspace DBFS root</option><option value="external-storage">Outside workspace storage</option></select></div>
     </div>
     <div id="verdict" role="status" aria-live="polite"></div>
+  </div>
+
+  <div class="card" id="env">
+    <h3 class="flush">Your environment</h3>
+    <p class="hint">Enter your names once. Every sample in Steps 3 to 8 rewrites itself, and Copy gives you commands ready to run. Values stay in this browser.</p>
+    <div class="env-grid">
+      <div><label for="v-hsch">Hive schema</label><input id="v-hsch" data-var="hsch" value="sales" autocomplete="off" spellcheck="false"></div>
+      <div><label for="v-cat">UC catalog</label><input id="v-cat" data-var="cat" value="main" autocomplete="off" spellcheck="false"></div>
+      <div><label for="v-sch">UC schema</label><input id="v-sch" data-var="sch" value="sales" autocomplete="off" spellcheck="false"></div>
+      <div><label for="v-tbl">Table</label><input id="v-tbl" data-var="tbl" value="orders" autocomplete="off" spellcheck="false"></div>
+      <div><label for="v-fed">Federated catalog</label><input id="v-fed" data-var="fed" value="hms_in_uc" autocomplete="off" spellcheck="false"></div>
+      <div><label for="v-grp">Group</label><input id="v-grp" data-var="grp" value="analysts" autocomplete="off" spellcheck="false"></div>
+    </div>
+    <button class="btn" id="env-reset" type="button">Reset to defaults</button>
   </div>
 
   <h3>0.1 Downtime position</h3>
@@ -242,13 +280,13 @@ databricks labs ucx migrate-locations       # optional: create UC external locat
     <li>Copy files that live in DBFS root (files already in mounted cloud storage are reached through the location).</li>
     <li>Verify reads, then unmount.</li>
   </ol>
-  <pre data-lang="sql"><code>USE CATALOG main;
+  <pre data-lang="sql"><code>USE CATALOG {{cat:main}};
 USE SCHEMA data;
 CREATE EXTERNAL VOLUME IF NOT EXISTS raw_files
   LOCATION 'my_data_loc/csv-files/';</code></pre>
   <pre data-lang="python"><code>dbutils.fs.cp("dbfs:/FileStore/tables/data.csv",
-              "/Volumes/main/data/raw_files/data.csv")
-dbutils.fs.ls("/Volumes/main/data/raw_files/")   # verify
+              "/Volumes/{{cat:main}}/data/raw_files/data.csv")
+dbutils.fs.ls("/Volumes/{{cat:main}}/data/raw_files/")   # verify
 dbutils.fs.unmount("/mnt/oldpath")               # after jobs are repointed</code></pre>
   <ul>
     <li>Use workspace files, not volumes, for code, libraries and small files in DBFS root.</li>
@@ -278,22 +316,22 @@ dbutils.fs.unmount("/mnt/oldpath")               # after jobs are repointed</cod
   <h3>4.1 External tables with SYNC</h3>
   <p><code>SYNC</code> is metadata-only, works per table or per schema, writes bookkeeping properties back to the Hive table, and can be re-run to pick up source changes, which supports a gradual hybrid transition. The upgrade wizard wraps SYNC in Catalog Explorer (external tables only, can be scheduled) and needs a storage credential, an external location and <code>CREATE EXTERNAL TABLE</code>.</p>
   <pre data-lang="sql"><code>-- Dry run first
-SYNC TABLE main.sales.orders FROM hive_metastore.sales.orders DRY RUN;
-SYNC SCHEMA main.sales FROM hive_metastore.sales SET OWNER `data-owners`;
+SYNC TABLE {{cat:main}}.{{sch:sales}}.{{tbl:orders}} FROM hive_metastore.{{hsch:sales}}.{{tbl:orders}} DRY RUN;
+SYNC SCHEMA {{cat:main}}.{{sch:sales}} FROM hive_metastore.{{hsch:sales}} SET OWNER `data-owners`;
 
 -- Hive managed table stored outside workspace storage: AS EXTERNAL is required
-SYNC TABLE main.sales.events AS EXTERNAL FROM hive_metastore.sales.events;</code></pre>
+SYNC TABLE {{cat:main}}.{{sch:sales}}.events AS EXTERNAL FROM hive_metastore.{{hsch:sales}}.events;</code></pre>
   <p>Read the status code in the result: <code>SUCCESS</code> and <code>DRY_RUN_SUCCESS</code> are good; <code>NOT_EXTERNAL</code> means a managed table needs <code>AS EXTERNAL</code>; <code>DBFS_ROOT_LOCATION</code> means use <code>DEEP CLONE</code>; <code>HIVE_SERDE</code> means convert to Delta first; <code>TABLE_ALREADY_EXISTS</code> is a target name clash. External table paths must not overlap, or sit under managed storage. Schedule repeat <code>SYNC</code> runs while the source is still written, and agree the final sync point for cutover.</p>
 
   <h3>4.2 Hive SerDe tables</h3>
   <p>SerDe tables fail with <code>UPGRADE_NOT_SUPPORTED.HIVE_SERDE</code>. Convert first:</p>
-  <pre data-lang="sql"><code>CONVERT TO DELTA hive_metastore.sales.orders;
-SYNC TABLE main.sales.orders FROM hive_metastore.sales.orders;</code></pre>
+  <pre data-lang="sql"><code>CONVERT TO DELTA hive_metastore.{{hsch:sales}}.{{tbl:orders}};
+SYNC TABLE {{cat:main}}.{{sch:sales}}.{{tbl:orders}} FROM hive_metastore.{{hsch:sales}}.{{tbl:orders}};</code></pre>
 
   <h3>4.3 Managed tables with DEEP CLONE</h3>
   <p>Clone is almost always preferred over CTAS. It needs managed Delta tables and must be a <strong>deep</strong> clone from Hive to UC.</p>
-  <pre data-lang="sql"><code>CREATE OR REPLACE TABLE main.sales.customers
-DEEP CLONE hive_metastore.sales.customers;</code></pre>
+  <pre data-lang="sql"><code>CREATE OR REPLACE TABLE {{cat:main}}.{{sch:sales}}.customers
+DEEP CLONE hive_metastore.{{hsch:sales}}.customers;</code></pre>
   <ul>
     <li>A deep clone creates a new table. It does not preserve source history, so confirm whether consumers need time travel before choosing it.</li>
     <li>For actively written tables, run a final reconciliation after the last source write.</li>
@@ -311,10 +349,10 @@ DEEP CLONE hive_metastore.sales.customers;</code></pre>
   </ol>
   <p>Federation supports managed and external tables, schemas, views and Hive SerDe tables. It does not expose Hive functions and UDFs or JDBC-backed tables, so recreate functions in Unity Catalog by hand. Supported compute is SQL warehouses, serverless, and standard or dedicated access mode on DBR 13.3 LTS, 14.3 LTS and 15.1+; no-isolation clusters are excluded. Fallback mode lets a workload use cluster- or notebook-scoped credentials when a UC permission check fails; it is meant only for the migration period.</p>
   <p><strong>Rules for the bridge period:</strong> keep source Hive tables intact; use fully qualified names; allow no new production dependencies on Hive-only objects; record all reads and writes to the source tables; agree a maximum bridge duration; and monitor permission differences between legacy ACLs and UC grants. Joins that mix <code>hive_metastore</code> data across workspaces fail.</p>
-  <pre data-lang="sql"><code>ALTER TABLE hms_in_uc.sales.orders SET MANAGED MOVE;  -- to UC managed; disables the source table (recommended)
-ALTER TABLE hms_in_uc.sales.orders SET MANAGED COPY;  -- to UC managed; source stays accessible
-ALTER TABLE hms_in_uc.sales.orders SET EXTERNAL;      -- to UC external (supports DRY RUN)
-ALTER CATALOG hms_in_uc DROP CONNECTION;              -- after migration</code></pre>
+  <pre data-lang="sql"><code>ALTER TABLE {{fed:hms_in_uc}}.{{sch:sales}}.{{tbl:orders}} SET MANAGED MOVE;  -- to UC managed; disables the source table (recommended)
+ALTER TABLE {{fed:hms_in_uc}}.{{sch:sales}}.{{tbl:orders}} SET MANAGED COPY;  -- to UC managed; source stays accessible
+ALTER TABLE {{fed:hms_in_uc}}.{{sch:sales}}.{{tbl:orders}} SET EXTERNAL;      -- to UC external (supports DRY RUN)
+ALTER CATALOG {{fed:hms_in_uc}} DROP CONNECTION;              -- after migration</code></pre>
   <ul>
     <li><code>SET MANAGED</code> needs <strong>DBR 17.3 LTS or above, or serverless compute</strong>, and a foreign table federated from a Hive metastore or AWS Glue. It was announced as Public Preview in November 2025; the current docs mark the Catalog Explorer conversion as Beta, so confirm the status of the SQL path before relying on it.</li>
     <li>Privileges for a foreign table: <code>OWNER</code> or <code>MANAGE</code> on the table, plus <code>CREATE</code> on the external location. Tables using column mapping with <code>minReaderVersion=2</code> and <code>minWriterVersion=7</code> fail conversion. After conversion, readers and writers need DBR 15.4 LTS or above.</li>
@@ -322,7 +360,7 @@ ALTER CATALOG hms_in_uc DROP CONNECTION;              -- after migration</code><
     <li><code>DRY RUN</code> is documented for <code>SET EXTERNAL</code> only. A syntax check against a current workspace (October 2026) accepted <code>SET MANAGED</code>, <code>SET MANAGED MOVE</code>, <code>SET MANAGED COPY</code>, <code>SET EXTERNAL</code>, <code>SET EXTERNAL DRY RUN</code> and <code>UNSET MANAGED</code>, and rejected <code>SET MANAGED ... DRY RUN</code> with <code>PARSE_SYNTAX_ERROR</code>.</li>
     <li>To convert a whole schema or catalog, iterate over the tables, or use the Labs project <code>discoverx</code>:</li>
   </ul>
-  <pre data-lang="python"><code>(dx.from_tables("hms_in_uc.*.*")
+  <pre data-lang="python"><code>(dx.from_tables("{{fed:hms_in_uc}}.*.*")
    .with_sql("ALTER TABLE {full_table_name} SET MANAGED MOVE;")
    .apply())</code></pre>
   <div class="callout warn"><strong>Rehearse first</strong>Rehearse with <code>SET MANAGED COPY</code> on a non-critical table if rollback matters, and read the "Foreign tables using SQL" section of the convert-to-managed docs before running <code>MOVE</code>.</div>
@@ -350,9 +388,9 @@ ALTER CATALOG hms_in_uc DROP CONNECTION;              -- after migration</code><
     <li>Re-create row filters and column masks that exist as dynamic views or Hive-era workarounds, and give job service principals their own grants.</li>
     <li>Snapshot Hive ACLs and <code>SHOW GRANTS</code> output before revoking anything, so access can be restored.</li>
   </ol>
-  <pre data-lang="sql"><code>GRANT USE CATALOG ON CATALOG main TO `analysts`;
-GRANT USE SCHEMA, SELECT ON SCHEMA main.sales TO `analysts`;
-SHOW GRANTS ON TABLE main.sales.orders;</code></pre>
+  <pre data-lang="sql"><code>GRANT USE CATALOG ON CATALOG {{cat:main}} TO `{{grp:analysts}}`;
+GRANT USE SCHEMA, SELECT ON SCHEMA {{cat:main}}.{{sch:sales}} TO `{{grp:analysts}}`;
+SHOW GRANTS ON TABLE {{cat:main}}.{{sch:sales}}.{{tbl:orders}};</code></pre>
   <label class="gate"><input type="checkbox" data-gate="step-5"><span><strong>Gate</strong>Access-parity test passes for a representative user per group.</span></label>
 </section>
 
@@ -381,12 +419,12 @@ SHOW GRANTS ON TABLE main.sales.orders;</code></pre>
 
   <h3>Code changes</h3>
   <pre data-lang="python"><code># Before
-df = spark.table("sales.orders")
-df = spark.read.parquet("/mnt/raw/orders")
+df = spark.table("{{hsch:sales}}.{{tbl:orders}}")
+df = spark.read.parquet("/mnt/raw/{{tbl:orders}}")
 
 # After
-df = spark.table("main.sales.orders")
-df = spark.read.parquet("/Volumes/main/sales/raw/orders")</code></pre>
+df = spark.table("{{cat:main}}.{{sch:sales}}.{{tbl:orders}}")
+df = spark.read.parquet("/Volumes/{{cat:main}}/{{sch:sales}}/raw/{{tbl:orders}}")</code></pre>
   <details>
     <summary>Unsupported <code>sc</code> commands on standard access mode</summary>
     <p><code>emptyRDD</code>, <code>range</code>, <code>init_batched_serializer</code>, <code>parallelize</code>, <code>pickleFile</code>, <code>textFile</code>, <code>wholeTextFiles</code>, <code>binaryFiles</code>, <code>binaryRecords</code>, <code>sequenceFile</code>, <code>newAPIHadoopFile</code>, <code>newAPIHadoopRDD</code>, <code>hadoopFile</code>, <code>hadoopRDD</code>, <code>union</code>, <code>runJob</code>, <code>setSystemProperty</code>, <code>uiWebUrl</code>, <code>stop</code>, <code>setJobGroup</code>, <code>setLocalProperty</code>, <code>getConf</code>.</p>
@@ -431,21 +469,21 @@ df = spark.read.parquet("/Volumes/main/sales/raw/orders")</code></pre>
   <h3>Workload validation</h3>
   <p>Run representative workloads in a production-like environment and compare functional output, runtime and cost, query plans, streaming latency and checkpoint progress, dashboard refreshes, job retries and failure rates, data quality alerts, and downstream delivery timings.</p>
   <h3>Reconciliation queries</h3>
-  <pre data-lang="sql"><code>SELECT 'hive' AS src, COUNT(*) AS n FROM hive_metastore.sales.orders
+  <pre data-lang="sql"><code>SELECT 'hive' AS src, COUNT(*) AS n FROM hive_metastore.{{hsch:sales}}.{{tbl:orders}}
 UNION ALL
-SELECT 'uc',   COUNT(*)        FROM main.sales.orders;
+SELECT 'uc',   COUNT(*)        FROM {{cat:main}}.{{sch:sales}}.{{tbl:orders}};
 
 -- Cheap content check: run both directions
 SELECT 'only_in_hive' AS side, * FROM (
-  SELECT * FROM hive_metastore.sales.orders EXCEPT ALL SELECT * FROM main.sales.orders)
+  SELECT * FROM hive_metastore.{{hsch:sales}}.{{tbl:orders}} EXCEPT ALL SELECT * FROM {{cat:main}}.{{sch:sales}}.{{tbl:orders}})
 UNION ALL
 SELECT 'only_in_uc', * FROM (
-  SELECT * FROM main.sales.orders EXCEPT ALL SELECT * FROM hive_metastore.sales.orders);
+  SELECT * FROM {{cat:main}}.{{sch:sales}}.{{tbl:orders}} EXCEPT ALL SELECT * FROM hive_metastore.{{hsch:sales}}.{{tbl:orders}});
 
 -- Aggregate profile for critical tables (adapt the columns)
 SELECT COUNT(*) AS row_count, MIN(event_timestamp) AS min_ts,
        MAX(event_timestamp) AS max_ts, SUM(amount) AS amount_total
-FROM main.sales.transactions;</code></pre>
+FROM {{cat:main}}.{{sch:sales}}.transactions;</code></pre>
 </section>
 
 <!-- STEP 8 -->
@@ -511,8 +549,8 @@ spark.databricks.sql.initial.catalog.namespace &lt;uc-catalog-name&gt;</code></p
       <tr><td>Access revoked on old table</td><td>Re-grant. The sources give no procedure, so snapshot <code>SHOW GRANTS</code> output first.</td></tr>
     </tbody>
   </table></div>
-  <pre data-lang="sql"><code>ALTER TABLE main.sales.orders UNSET MANAGED;  -- reverts the table to external
-DROP TABLE  main.sales.orders;                -- re-federates it as a foreign table after the next catalog sync</code></pre>
+  <pre data-lang="sql"><code>ALTER TABLE {{cat:main}}.{{sch:sales}}.{{tbl:orders}} UNSET MANAGED;  -- reverts the table to external
+DROP TABLE  {{cat:main}}.{{sch:sales}}.{{tbl:orders}};                -- re-federates it as a foreign table after the next catalog sync</code></pre>
   <div class="callout danger"><strong>Order matters</strong>Skipping <code>UNSET MANAGED</code> before the drop risks data loss or inconsistency. For commits made between conversion and rollback, time travel works by version, not by timestamp. Seven days after rollback, Databricks deletes the data in the managed location.</div>
   <div class="callout tip"><strong>Staged retirement</strong>Remove access first (reversible), watch for breakage, then purge the data a week or more later. Keep the Hive tables and data until the parallel run is signed off.</div>
   <div class="callout tip"><strong>Note</strong>Databricks is progressively disabling direct Hive access for workspaces with no Hive metastore usage, starting July 2026 (per the disable-HMS doc). Confirm current behaviour for your workspace.</div>
@@ -540,6 +578,8 @@ DROP TABLE  main.sales.orders;                -- re-federates it as a foreign ta
       <tr><td>customer</td><td>Table</td><td>Team name</td><td><code>hive_metastore.finance.customer</code></td><td><code>finance_prod.core.customer</code></td><td>SYNC / clone / in-place</td><td>Yes / No</td><td>Not started</td><td>Date / time</td><td>Ready / Not ready</td></tr>
     </tbody>
   </table></div>
+
+  <p><button class="btn" id="csv" type="button">Download tracker as CSV</button></p>
 
   <h3>Key risks and mitigations</h3>
   <div class="table-wrap"><table>
@@ -655,6 +695,11 @@ DROP TABLE  main.sales.orders;                -- re-federates it as a foreign ta
 
 </main>
 </div>
+<dialog id="palette" aria-label="Search the guide">
+  <form method="dialog" class="pal-top"><input id="pal-q" type="text" role="searchbox" enterkeyhint="search" placeholder="Search commands, errors, steps" autocomplete="off" aria-label="Search the guide"><button class="btn" value="x">Close</button></form>
+  <ul id="pal-list" role="listbox"></ul>
+  <p class="pal-foot">Enter to jump. Esc to close.</p>
+</dialog>
 <script src="assets/js/app.js" defer></script>
 </body>
 </html>

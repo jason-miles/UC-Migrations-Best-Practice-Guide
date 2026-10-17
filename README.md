@@ -23,6 +23,10 @@ To run it locally, open `index.html` or serve the repo root with any web server.
 
 ## Features
 
+- **Your environment panel:** enter catalog, schema, table and group names once; every code sample rewrites live and Copy returns commands ready to run.
+- **Search palette:** Ctrl/Cmd+K searches all content with snippets and jumps to the match.
+- **Progress:** persisted step gates and checklists feed one overall meter; tracker CSV download.
+
 - Sticky navigation with scroll-spy, filter box, reading progress bar
 - Light/dark theme, print stylesheet
 - Copy buttons on every code block
