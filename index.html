@@ -71,7 +71,7 @@
     <figcaption>What changes: two levels become three, and three routes lead across.</figcaption>
     <div class="arch-grid">
       <div class="arch-col">
-        <h4>Hive metastore</h4>
+        <p class="arch-h">Hive metastore</p>
         <p>Legacy. One per workspace.</p>
         <div class="lvl">schema</div><div class="lvl">table</div>
         <p class="fixed">Referenced as <code>hive_metastore.schema.table</code></p>
@@ -82,7 +82,7 @@
         <li class="lane"><strong>DEEP CLONE or CTAS</strong><span>Managed tables, data copied</span></li>
       </ul>
       <div class="arch-col">
-        <h4>Unity Catalog</h4>
+        <p class="arch-h">Unity Catalog</p>
         <p>One metastore per region, shared by workspaces.</p>
         <div class="lvl">catalog</div><div class="lvl">schema</div><div class="lvl">table, view, volume</div>
       </div>
@@ -100,9 +100,9 @@
   </table>
   </div>
 
-  <div class="flow" aria-label="Phase flow">
-    <span class="node on">Assess</span><span class="arrow">&rarr;</span><span class="node">Plan</span><span class="arrow">&rarr;</span>
-    <span class="node">Migrate</span><span class="arrow">&rarr;</span><span class="node">Validate</span><span class="arrow">&rarr;</span><span class="node">Decommission</span>
+  <div class="flow" role="group" aria-label="Phase flow">
+    <span class="node on">Assess</span><span class="arrow" aria-hidden="true">&rarr;</span><span class="node">Plan</span><span class="arrow" aria-hidden="true">&rarr;</span>
+    <span class="node">Migrate</span><span class="arrow" aria-hidden="true">&rarr;</span><span class="node">Validate</span><span class="arrow" aria-hidden="true">&rarr;</span><span class="node">Decommission</span>
   </div>
 
   <div class="card">
@@ -163,15 +163,15 @@
 
   <h3>0.3 Assumptions to confirm and migration controls</h3>
   <ul class="check">
-    <li><input type="checkbox"><span>The target region has a UC metastore, and account-level users, groups and service principals exist.</span></li>
-    <li><input type="checkbox"><span>Catalog and schema design is agreed; storage credentials and external locations are available for external tables.</span></li>
-    <li><input type="checkbox"><span>Critical jobs and downstream consumers have named owners.</span></li>
-    <li><input type="checkbox"><span>Original Hive tables are preserved until validation and rollback windows expire.</span></li>
-    <li><input type="checkbox"><span>History, permissions, views and non-Delta formats are validated explicitly, because behaviour differs by method.</span></li>
-    <li><input type="checkbox"><span>A migration tracker exists with one row per table, view, job, dashboard and application (template in the appendix).</span></li>
-    <li><input type="checkbox"><span>A change window is set for each wave, with a freeze on unplanned schema and permission changes during cutover.</span></li>
-    <li><input type="checkbox"><span>Incident escalation contacts and rollback authority are named.</span></li>
-    <li><input type="checkbox"><span>The current Hive state (definitions, locations, owners, grants, dependencies) is captured, and backup, retention and recovery for source data are confirmed.</span></li>
+    <li><label><input type="checkbox"><span>The target region has a UC metastore, and account-level users, groups and service principals exist.</span></label></li>
+    <li><label><input type="checkbox"><span>Catalog and schema design is agreed; storage credentials and external locations are available for external tables.</span></label></li>
+    <li><label><input type="checkbox"><span>Critical jobs and downstream consumers have named owners.</span></label></li>
+    <li><label><input type="checkbox"><span>Original Hive tables are preserved until validation and rollback windows expire.</span></label></li>
+    <li><label><input type="checkbox"><span>History, permissions, views and non-Delta formats are validated explicitly, because behaviour differs by method.</span></label></li>
+    <li><label><input type="checkbox"><span>A migration tracker exists with one row per table, view, job, dashboard and application (template in the appendix).</span></label></li>
+    <li><label><input type="checkbox"><span>A change window is set for each wave, with a freeze on unplanned schema and permission changes during cutover.</span></label></li>
+    <li><label><input type="checkbox"><span>Incident escalation contacts and rollback authority are named.</span></label></li>
+    <li><label><input type="checkbox"><span>The current Hive state (definitions, locations, owners, grants, dependencies) is captured, and backup, retention and recovery for source data are confirmed.</span></label></li>
   </ul>
 </section>
 
@@ -227,13 +227,13 @@ HAVING MAX(event_time) &lt; current_date() - INTERVAL 90 DAYS;</code></pre>
   <p class="lede">Hive has two levels (<code>schema.table</code>). Unity Catalog has three (<code>catalog.schema.table</code>). The mapping is the main design decision.</p>
 
   <ul class="check">
-    <li><input type="checkbox"><span>Metastore exists, is attached to the workspace, and the regional layout is agreed.</span></li>
-    <li><input type="checkbox"><span>Catalog strategy chosen (by environment, business domain, or both) and documented.</span></li>
-    <li><input type="checkbox"><span>Schema mapping reviewed, e.g. <code>hive_metastore.sales</code> to <code>prod.sales</code>.</span></li>
-    <li><input type="checkbox"><span>Group ownership chosen for catalogs and schemas (not individual users).</span></li>
-    <li><input type="checkbox"><span>Managed versus external table strategy, storage locations and external locations decided.</span></li>
-    <li><input type="checkbox"><span>Catalog-to-workspace bindings, service principal access, and dev / test / prod separation decided.</span></li>
-    <li><input type="checkbox"><span>Cross-workspace and cross-region sharing requirements noted.</span></li>
+    <li><label><input type="checkbox"><span>Metastore exists, is attached to the workspace, and the regional layout is agreed.</span></label></li>
+    <li><label><input type="checkbox"><span>Catalog strategy chosen (by environment, business domain, or both) and documented.</span></label></li>
+    <li><label><input type="checkbox"><span>Schema mapping reviewed, e.g. <code>hive_metastore.sales</code> to <code>prod.sales</code>.</span></label></li>
+    <li><label><input type="checkbox"><span>Group ownership chosen for catalogs and schemas (not individual users).</span></label></li>
+    <li><label><input type="checkbox"><span>Managed versus external table strategy, storage locations and external locations decided.</span></label></li>
+    <li><label><input type="checkbox"><span>Catalog-to-workspace bindings, service principal access, and dev / test / prod separation decided.</span></label></li>
+    <li><label><input type="checkbox"><span>Cross-workspace and cross-region sharing requirements noted.</span></label></li>
   </ul>
 
   <h3>Naming model and baseline grants</h3>
@@ -436,12 +436,12 @@ df = spark.read.parquet("/Volumes/{{cat:main}}/{{sch:sales}}/raw/{{tbl:orders}}"
   <h3>Consumers to remediate and test</h3>
   <p>Jobs and workflows; notebooks and SQL queries; Structured Streaming pipelines; Delta Live Tables / Lakeflow pipelines; SQL dashboards and alerts; BI tools and JDBC/ODBC clients; APIs and application services; data extracts and downstream platforms; data quality checks.</p>
   <ul class="check">
-    <li><input type="checkbox"><span>Missing <code>USE CATALOG</code> / <code>USE SCHEMA</code> privileges.</span></li>
-    <li><input type="checkbox"><span>Direct filesystem or storage access that bypasses Unity Catalog.</span></li>
-    <li><input type="checkbox"><span>Hive-specific partition commands and implicit default-catalog assumptions.</span></li>
-    <li><input type="checkbox"><span>Temporary views that hide unresolved two-level table references.</span></li>
-    <li><input type="checkbox"><span>Streaming checkpoint compatibility; plan a dedicated streaming cutover.</span></li>
-    <li><input type="checkbox"><span>SQL warehouse versus cluster behaviour; service principal authentication and permissions.</span></li>
+    <li><label><input type="checkbox"><span>Missing <code>USE CATALOG</code> / <code>USE SCHEMA</code> privileges.</span></label></li>
+    <li><label><input type="checkbox"><span>Direct filesystem or storage access that bypasses Unity Catalog.</span></label></li>
+    <li><label><input type="checkbox"><span>Hive-specific partition commands and implicit default-catalog assumptions.</span></label></li>
+    <li><label><input type="checkbox"><span>Temporary views that hide unresolved two-level table references.</span></label></li>
+    <li><label><input type="checkbox"><span>Streaming checkpoint compatibility; plan a dedicated streaming cutover.</span></label></li>
+    <li><label><input type="checkbox"><span>SQL warehouse versus cluster behaviour; service principal authentication and permissions.</span></label></li>
   </ul>
   <label class="gate"><input type="checkbox" data-gate="step-6"><span><strong>Gate</strong>Each job runs green on UC compute against UC tables, with no <code>hive_metastore</code> or <code>/mnt</code> references left in code.</span></label>
 </section>
@@ -451,20 +451,20 @@ df = spark.read.parquet("/Volumes/{{cat:main}}/{{sch:sales}}/raw/{{tbl:orders}}"
   <div class="step-head"><div class="step-no">07</div><h2>Validate and run in parallel</h2></div>
   <p class="lede">Prove equivalence before anyone switches over.</p>
   <ul class="check">
-    <li><input type="checkbox"><span>Row counts and checksums match for every migrated table.</span></li>
-    <li><input type="checkbox"><span>Distinct business keys, null counts on critical columns, min / max timestamps, partition coverage, and totals for critical measures match.</span></li>
-    <li><input type="checkbox"><span>Duplicate and referential-integrity checks pass; latest source and target timestamps agree.</span></li>
-    <li><input type="checkbox"><span>Schemas, data types, comments, constraints, partitioning and table properties match.</span></li>
-    <li><input type="checkbox"><span>Old and new pipelines run in parallel; historical and incremental loads reconcile.</span></li>
-    <li><input type="checkbox"><span>Dashboards and BI connections repointed and compared.</span></li>
-    <li><input type="checkbox"><span>Access-parity tests pass per group.</span></li>
+    <li><label><input type="checkbox"><span>Row counts and checksums match for every migrated table.</span></label></li>
+    <li><label><input type="checkbox"><span>Distinct business keys, null counts on critical columns, min / max timestamps, partition coverage, and totals for critical measures match.</span></label></li>
+    <li><label><input type="checkbox"><span>Duplicate and referential-integrity checks pass; latest source and target timestamps agree.</span></label></li>
+    <li><label><input type="checkbox"><span>Schemas, data types, comments, constraints, partitioning and table properties match.</span></label></li>
+    <li><label><input type="checkbox"><span>Old and new pipelines run in parallel; historical and incremental loads reconcile.</span></label></li>
+    <li><label><input type="checkbox"><span>Dashboards and BI connections repointed and compared.</span></label></li>
+    <li><label><input type="checkbox"><span>Access-parity tests pass per group.</span></label></li>
   </ul>
   <h3>Security validation</h3>
   <ul class="check">
-    <li><input type="checkbox"><span>Unauthorised users cannot see the catalog, schema, table or sensitive columns; intended groups keep the access they need.</span></li>
-    <li><input type="checkbox"><span>Row filters and column masks behave as designed.</span></li>
-    <li><input type="checkbox"><span>External locations do not grant broader cloud-storage access than intended.</span></li>
-    <li><input type="checkbox"><span>Audit events and lineage are visible; workspace-catalog bindings block unintended cross-environment access.</span></li>
+    <li><label><input type="checkbox"><span>Unauthorised users cannot see the catalog, schema, table or sensitive columns; intended groups keep the access they need.</span></label></li>
+    <li><label><input type="checkbox"><span>Row filters and column masks behave as designed.</span></label></li>
+    <li><label><input type="checkbox"><span>External locations do not grant broader cloud-storage access than intended.</span></label></li>
+    <li><label><input type="checkbox"><span>Audit events and lineage are visible; workspace-catalog bindings block unintended cross-environment access.</span></label></li>
   </ul>
   <h3>Workload validation</h3>
   <p>Run representative workloads in a production-like environment and compare functional output, runtime and cost, query plans, streaming latency and checkpoint progress, dashboard refreshes, job retries and failure rates, data quality alerts, and downstream delivery timings.</p>
@@ -557,13 +557,13 @@ DROP TABLE  {{cat:main}}.{{sch:sales}}.{{tbl:orders}};                -- re-fede
 
   <h3>Finalisation</h3>
   <ul class="check">
-    <li><input type="checkbox"><span>No active job, notebook, dashboard or application references <code>hive_metastore</code>; repositories and workspace objects are searched for two-level names and direct paths.</span></li>
-    <li><input type="checkbox"><span>Service principals and external clients use Unity Catalog objects.</span></li>
-    <li><input type="checkbox"><span>Temporary federation and <code>SYNC</code> schedules are removed.</span></li>
-    <li><input type="checkbox"><span>Direct Hive access is disabled under the approved change plan.</span></li>
-    <li><input type="checkbox"><span>Inventory, validation evidence, approvals and rollback records are archived.</span></li>
-    <li><input type="checkbox"><span>Obsolete Hive tables are removed only after the agreed retention period and business approval.</span></li>
-    <li><input type="checkbox"><span>Platform documentation, support procedures and onboarding materials are updated.</span></li>
+    <li><label><input type="checkbox"><span>No active job, notebook, dashboard or application references <code>hive_metastore</code>; repositories and workspace objects are searched for two-level names and direct paths.</span></label></li>
+    <li><label><input type="checkbox"><span>Service principals and external clients use Unity Catalog objects.</span></label></li>
+    <li><label><input type="checkbox"><span>Temporary federation and <code>SYNC</code> schedules are removed.</span></label></li>
+    <li><label><input type="checkbox"><span>Direct Hive access is disabled under the approved change plan.</span></label></li>
+    <li><label><input type="checkbox"><span>Inventory, validation evidence, approvals and rollback records are archived.</span></label></li>
+    <li><label><input type="checkbox"><span>Obsolete Hive tables are removed only after the agreed retention period and business approval.</span></label></li>
+    <li><label><input type="checkbox"><span>Platform documentation, support procedures and onboarding materials are updated.</span></label></li>
   </ul>
 </section>
 
@@ -631,21 +631,21 @@ DROP TABLE  {{cat:main}}.{{sch:sales}}.{{tbl:orders}};                -- re-fede
   <div class="step-head"><div class="step-no">&#10003;</div><h2>Master checklist</h2></div>
   <p class="lede">Progress saves in this browser. <span id="tally"></span></p>
   <ul class="check">
-    <li><input type="checkbox"><span>Roles, change windows, freeze and rollback authority agreed; migration tracker created.</span></li>
-    <li><input type="checkbox"><span>UCX installed; assessment run; readiness score recorded.</span></li>
-    <li><input type="checkbox"><span>Inactive jobs and tables de-scoped using system tables.</span></li>
-    <li><input type="checkbox"><span>Table mapping CSV reviewed and committed.</span></li>
-    <li><input type="checkbox"><span>Account groups created; workspace groups migrated.</span></li>
-    <li><input type="checkbox"><span>Storage credentials and external locations created.</span></li>
-    <li><input type="checkbox"><span>Mounts replaced by external locations and volumes.</span></li>
-    <li><input type="checkbox"><span>External tables synced; SerDe tables converted.</span></li>
-    <li><input type="checkbox"><span>Managed tables cloned; views recreated.</span></li>
-    <li><input type="checkbox"><span>Permissions migrated; access parity validated.</span></li>
-    <li><input type="checkbox"><span>Clusters, init scripts, libraries and jobs UC-compatible.</span></li>
-    <li><input type="checkbox"><span>First wave completed and its lessons applied to later waves.</span></li>
-    <li><input type="checkbox"><span>Parallel run reconciled; per-wave go / no-go and sign-off recorded.</span></li>
-    <li><input type="checkbox"><span>Fallback mode off; default catalog set; direct HMS access disabled.</span></li>
-    <li><input type="checkbox"><span>Legacy tables and uber principal retired; evidence archived.</span></li>
+    <li><label><input type="checkbox"><span>Roles, change windows, freeze and rollback authority agreed; migration tracker created.</span></label></li>
+    <li><label><input type="checkbox"><span>UCX installed; assessment run; readiness score recorded.</span></label></li>
+    <li><label><input type="checkbox"><span>Inactive jobs and tables de-scoped using system tables.</span></label></li>
+    <li><label><input type="checkbox"><span>Table mapping CSV reviewed and committed.</span></label></li>
+    <li><label><input type="checkbox"><span>Account groups created; workspace groups migrated.</span></label></li>
+    <li><label><input type="checkbox"><span>Storage credentials and external locations created.</span></label></li>
+    <li><label><input type="checkbox"><span>Mounts replaced by external locations and volumes.</span></label></li>
+    <li><label><input type="checkbox"><span>External tables synced; SerDe tables converted.</span></label></li>
+    <li><label><input type="checkbox"><span>Managed tables cloned; views recreated.</span></label></li>
+    <li><label><input type="checkbox"><span>Permissions migrated; access parity validated.</span></label></li>
+    <li><label><input type="checkbox"><span>Clusters, init scripts, libraries and jobs UC-compatible.</span></label></li>
+    <li><label><input type="checkbox"><span>First wave completed and its lessons applied to later waves.</span></label></li>
+    <li><label><input type="checkbox"><span>Parallel run reconciled; per-wave go / no-go and sign-off recorded.</span></label></li>
+    <li><label><input type="checkbox"><span>Fallback mode off; default catalog set; direct HMS access disabled.</span></label></li>
+    <li><label><input type="checkbox"><span>Legacy tables and uber principal retired; evidence archived.</span></label></li>
   </ul>
   <button class="btn" id="reset" type="button">Reset checklist</button>
 </section>
@@ -696,8 +696,8 @@ DROP TABLE  {{cat:main}}.{{sch:sales}}.{{tbl:orders}};                -- re-fede
 </main>
 </div>
 <dialog id="palette" aria-label="Search the guide">
-  <form method="dialog" class="pal-top"><input id="pal-q" type="text" role="searchbox" enterkeyhint="search" placeholder="Search commands, errors, steps" autocomplete="off" aria-label="Search the guide"><button class="btn" value="x">Close</button></form>
-  <ul id="pal-list" role="listbox"></ul>
+  <form method="dialog" class="pal-top"><input id="pal-q" type="text" role="combobox" aria-expanded="false" aria-controls="pal-list" aria-autocomplete="list" enterkeyhint="search" placeholder="Search commands, errors, steps" autocomplete="off" aria-label="Search the guide"><button class="btn" value="x">Close</button></form>
+  <ul id="pal-list" role="listbox" aria-label="Search results" tabindex="0"></ul>
   <p class="pal-foot">Enter to jump. Esc to close.</p>
 </dialog>
 <script src="assets/js/app.js" defer></script>

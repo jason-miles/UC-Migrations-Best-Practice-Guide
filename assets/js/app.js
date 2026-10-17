@@ -52,6 +52,15 @@
     });
   });
 
+  // Scrollable tables: keyboard reachable and named by the heading above
+  $$('.table-wrap').forEach((w, i) => {
+    let prev = w.previousElementSibling;
+    while (prev && !/^H[23]$/.test(prev.tagName)) prev = prev.previousElementSibling;
+    const sec = w.closest('section')?.querySelector('h2')?.textContent || '';
+    w.tabIndex = 0; w.setAttribute('role', 'region');
+    w.setAttribute('aria-label', ((prev ? prev.textContent : sec) + ' table ' + (i + 1)).trim());
+  });
+
   // Copy buttons
   $$('pre').forEach(pre => {
     const b = document.createElement('button');
@@ -186,7 +195,7 @@
     pl.innerHTML = '';
     hits.forEach((r, i) => {
       const li = document.createElement('li');
-      li.setAttribute('role', 'option'); li.setAttribute('aria-selected', i === sel);
+      li.setAttribute('role', 'option'); li.id = 'pal-o' + i; li.setAttribute('aria-selected', i === sel);
       const t = document.createElement('span'); t.className = 'pal-sec'; t.textContent = r.sname;
       const x = document.createElement('span'); x.textContent = r.snip;
       li.append(t, x);
@@ -194,6 +203,8 @@
       pl.appendChild(li);
     });
     if (!hits.length && pq.value.trim()) pl.innerHTML = '<li class="pal-empty">No matches</li>';
+    pq.setAttribute('aria-expanded', hits.length > 0);
+    if (hits.length) pq.setAttribute('aria-activedescendant', 'pal-o' + sel); else pq.removeAttribute('aria-activedescendant');
   };
   const search = () => {
     if (!idx) build();
@@ -225,6 +236,7 @@
       e.preventDefault();
       sel = (sel + (e.key === 'ArrowDown' ? 1 : -1) + hits.length) % (hits.length || 1);
       $$('#pal-list li').forEach((li, i) => li.setAttribute('aria-selected', i === sel));
+      pq.setAttribute('aria-activedescendant', 'pal-o' + sel);
       $$('#pal-list li')[sel]?.scrollIntoView({ block: 'nearest' });
     } else if (e.key === 'Enter') { e.preventDefault(); go(sel); }
   });
